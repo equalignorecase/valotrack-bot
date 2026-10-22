@@ -1051,13 +1051,11 @@ def build_friend_rank_embed(
     start_idx = page * per_page
     page_players = player_summaries[start_idx : start_idx + per_page]
 
-    medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
-
     top_rank_name = player_summaries[0]["rank_name"] if player_summaries else "Unrated"
     color = get_rank_color(top_rank_name)
 
     embed = discord.Embed(
-        title="🏆 อันดับแรงค์แก๊งเพื่อน (Friends Rank Leaderboard)",
+        title="อันดับแรงค์แก๊งเพื่อน (Friends Leaderboard)",
         description=f"สมาชิกในก๊วนทั้งหมด **{len(player_summaries)}** คน • เรียงตามแต้ม ELO สูงสุด",
         color=color,
     )
@@ -1067,8 +1065,6 @@ def build_friend_rank_embed(
         embed.set_thumbnail(url=top_icon)
 
     for idx, p in enumerate(page_players, start=start_idx + 1):
-        medal = medals[idx - 1] if idx <= len(medals) else f"#{idx}"
-        badge = p.get("badge", "❔")
         display_name = p.get("display_name", "Unknown")
         rank_name = p.get("rank_name", "Unrated")
         rr = p.get("rr", 0)
@@ -1077,17 +1073,17 @@ def build_friend_rank_embed(
         peak = p.get("peak_rank", "-")
 
         if last_change > 0:
-            change_str = f"📈 `+{last_change} RR`"
+            change_str = f"+{last_change} RR"
         elif last_change < 0:
-            change_str = f"📉 `{last_change} RR`"
+            change_str = f"{last_change} RR"
         else:
-            change_str = "➖ `0 RR`"
+            change_str = "0 RR"
 
-        field_name = f"{medal} {badge} {display_name}"
+        field_name = f"#{idx} {display_name}"
         field_value = (
-            f"🏅 **{rank_name}** (`{rr}/100 RR`)\n"
-            f"⚡ แมตช์ล่าสุด: {change_str} • 📊 แต้ม ELO: `{elo:,}`\n"
-            f"🌟 Peak: **{peak}**"
+            f"**{rank_name}** (`{rr}/100 RR`)\n"
+            f"แมตช์ล่าสุด: `{change_str}` • ELO: `{elo:,}`\n"
+            f"Peak: **{peak}**"
         )
         embed.add_field(name=field_name, value=field_value, inline=False)
 
@@ -1096,6 +1092,7 @@ def build_friend_rank_embed(
         text=f"หน้า {page + 1}/{total_pages} • อัพเดทล่าสุดเมื่อ {now_ict} (ICT) • กด 🔄 เพื่ออัพเดทแรงค์"
     )
     return embed
+
 
 
 class FriendRankView(discord.ui.View):
