@@ -1,0 +1,7 @@
+discord.py>=2.3.2
+httpx>=0.27.0
+cryptography>=42.0.0
+aiosqlite>=0.20.0
+python-dotenv>=1.0.0
+Pillow>=10.0.0
+psutil>=5.9.0
