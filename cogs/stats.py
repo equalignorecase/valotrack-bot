@@ -1055,8 +1055,8 @@ def build_friend_rank_embed(
     color = get_rank_color(top_rank_name)
 
     embed = discord.Embed(
-        title="อันดับแรงค์แก๊งเพื่อน (Friends Leaderboard)",
-        description=f"สมาชิกในก๊วนทั้งหมด **{len(player_summaries)}** คน • เรียงตามแต้ม ELO สูงสุด",
+        title="จัดอันดับแรงค์ (Rank Leaderboard)",
+        description=f"อันดับพวกบื้อ **{len(player_summaries)}** คน • เรียงตามแต้ม ELO สูงสุด",
         color=color,
     )
 
@@ -1064,7 +1064,21 @@ def build_friend_rank_embed(
     if top_icon:
         embed.set_thumbnail(url=top_icon)
 
+    num_emojis = {
+        1: "1️⃣",
+        2: "2️⃣",
+        3: "3️⃣",
+        4: "4️⃣",
+        5: "5️⃣",
+        6: "6️⃣",
+        7: "7️⃣",
+        8: "8️⃣",
+        9: "9️⃣",
+        10: "🔟",
+    }
+
     for idx, p in enumerate(page_players, start=start_idx + 1):
+        rank_icon = num_emojis.get(idx, f"#{idx}")
         display_name = p.get("display_name", "Unknown")
         rank_name = p.get("rank_name", "Unrated")
         rr = p.get("rr", 0)
@@ -1079,7 +1093,7 @@ def build_friend_rank_embed(
         else:
             change_str = "0 RR"
 
-        field_name = f"#{idx} {display_name}"
+        field_name = f"{rank_icon} **{display_name}**"
         field_value = (
             f"**{rank_name}** (`{rr}/100 RR`)\n"
             f"แมตช์ล่าสุด: `{change_str}` • ELO: `{elo:,}`\n"
@@ -1092,6 +1106,7 @@ def build_friend_rank_embed(
         text=f"หน้า {page + 1}/{total_pages} • อัพเดทล่าสุดเมื่อ {now_ict} (ICT) • กด 🔄 เพื่ออัพเดทแรงค์"
     )
     return embed
+
 
 
 
