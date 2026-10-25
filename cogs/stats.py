@@ -1063,9 +1063,12 @@ def build_friend_rank_embed(
         color=color,
     )
 
-    top_icon = player_summaries[0].get("rank_icon") if player_summaries else None
-    if top_icon:
-        embed.set_thumbnail(url=top_icon)
+    logo_url = getattr(
+        config,
+        "VALORANT_LOGO_URL",
+        "https://cdn.iconscout.com/icon/free/png-256/free-valorant-logo-icon-svg-download-png-2724649.png",
+    )
+    embed.set_thumbnail(url=logo_url)
 
     num_emojis = {
         1: "1️⃣",

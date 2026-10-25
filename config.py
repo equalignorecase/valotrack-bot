@@ -41,6 +41,11 @@ DEFAULT_FRIENDS = [
     "KissMe#4245",
 ]
 
+# Valorant Logo URL for Discord embeds
+VALORANT_LOGO_URL = (
+    "https://cdn.iconscout.com/icon/free/png-256/free-valorant-logo-icon-svg-download-png-2724649.png"
+)
+
 
 def get_aes_key() -> bytes:
     """Decodes and validates the 32-byte AES key from base64."""
