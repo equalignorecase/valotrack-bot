@@ -200,6 +200,10 @@ class StatsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    async def cog_load(self):
+        # Register persistent view so /checkrank buttons work permanently across bot restarts
+        self.bot.add_view(FriendRankView())
+
     @app_commands.command(
         name="rank",
         description="ดูแรงค์และคะแนนปัจจุบันของผู้เล่น (จำเป็นต้องระบุ Riot ID เช่น Name#Tag)",
@@ -683,8 +687,7 @@ class StatsCog(commands.Cog):
 
         view = FriendRankView(guild_id=guild_id, player_summaries=summaries, page=0, per_page=5)
         embed = view.get_embed()
-        msg = await interaction.followup.send(embed=embed, view=view)
-        view.message = msg
+        await interaction.followup.send(embed=embed, view=view)
 
     @app_commands.command(
         name="addfriend",
@@ -1110,88 +1113,128 @@ def build_friend_rank_embed(
 
 
 
+_REFRESH_COOLDOWNS: dict[int, float] = {}
+
+
+def get_current_page_from_embed(embed: discord.Embed) -> int:
+    """Parses current page number (0-indexed) from embed footer (e.g. 'หน้า 1/2')."""
+    try:
+        if embed.footer and embed.footer.text and "หน้า " in embed.footer.text:
+            text = embed.footer.text
+            page_part = text.split("หน้า ", 1)[1].split("/", 1)[0].strip()
+            return max(0, int(page_part) - 1)
+    except Exception:
+        pass
+    return 0
+
+
 class FriendRankView(discord.ui.View):
     def __init__(
         self,
-        guild_id: int,
-        player_summaries: list[dict[str, Any]],
+        guild_id: int = 0,
+        player_summaries: list[dict[str, Any]] | None = None,
         page: int = 0,
         per_page: int = 5,
     ):
-        super().__init__(timeout=300)
+        super().__init__(timeout=None)
         self.guild_id = guild_id
-        self.player_summaries = player_summaries
+        self.player_summaries = player_summaries or []
         self.page = page
         self.per_page = per_page
-        self.total_pages = max(1, (len(player_summaries) - 1) // per_page + 1)
-        self.last_refresh_time = time.time()
-        self.message: discord.Message | None = None
+        self.total_pages = max(1, (len(self.player_summaries) - 1) // per_page + 1) if self.player_summaries else 1
         self.update_buttons()
 
     def update_buttons(self):
         self.prev_btn.disabled = self.page <= 0
-        self.next_btn.disabled = self.page >= self.total_pages - 1
+        if self.total_pages > 1:
+            self.next_btn.disabled = self.page >= self.total_pages - 1
+        else:
+            self.next_btn.disabled = True
 
     def get_embed(self) -> discord.Embed:
         return build_friend_rank_embed(
             self.player_summaries, self.page, self.per_page, self.total_pages
         )
 
-    @discord.ui.button(label="◀️ ก่อนหน้า", style=discord.ButtonStyle.secondary, row=0)
+    async def _ensure_data(self, interaction: discord.Interaction, force_refresh: bool = False):
+        """Loads or updates player data if empty or requested."""
+        guild_id = self.guild_id or interaction.guild_id or 0
+        self.guild_id = guild_id
+
+        if not self.player_summaries or force_refresh:
+            friends = await get_tracked_friends(guild_id)
+            if not friends:
+                friends = await ensure_default_friends(guild_id, config.DEFAULT_FRIENDS)
+
+            tasks = [fetch_player_rank_summary(f, force_refresh=force_refresh) for f in friends]
+            summaries = await asyncio.gather(*tasks)
+            self.player_summaries = sorted(summaries, key=lambda p: p["elo"], reverse=True)
+            self.total_pages = max(1, (len(self.player_summaries) - 1) // self.per_page + 1)
+
+    @discord.ui.button(
+        label="◀️ ก่อนหน้า",
+        style=discord.ButtonStyle.secondary,
+        custom_id="checkrank:prev",
+        row=0,
+    )
     async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.page > 0:
-            self.page -= 1
+        await self._ensure_data(interaction, force_refresh=False)
+        current_page = get_current_page_from_embed(interaction.message.embeds[0]) if interaction.message.embeds else self.page
+        if current_page > 0:
+            self.page = current_page - 1
             self.update_buttons()
             await interaction.response.edit_message(embed=self.get_embed(), view=self)
         else:
             await interaction.response.defer()
 
-    @discord.ui.button(label="🔄 อัพเดทแรงค์", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(
+        label="🔄 อัพเดทแรงค์",
+        style=discord.ButtonStyle.primary,
+        custom_id="checkrank:refresh",
+        row=0,
+    )
     async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild_id = self.guild_id or interaction.guild_id or 0
         now = time.time()
-        if now - self.last_refresh_time < 10:
-            remaining = int(10 - (now - self.last_refresh_time))
+        last_refresh = _REFRESH_COOLDOWNS.get(guild_id, 0)
+        if now - last_refresh < 10:
+            remaining = int(10 - (now - last_refresh))
             await interaction.response.send_message(
                 f"⏳ กรุณารอสักครู่ (อีก {remaining} วินาที) ก่อนกดอัพเดทอีกครั้ง",
                 ephemeral=True,
             )
             return
 
-        self.last_refresh_time = now
+        _REFRESH_COOLDOWNS[guild_id] = now
         await interaction.response.defer()
 
-        friends = await get_tracked_friends(self.guild_id)
-        if not friends:
-            friends = await ensure_default_friends(self.guild_id, config.DEFAULT_FRIENDS)
+        # Parse current page before refresh so user stays on the same page
+        if interaction.message.embeds:
+            self.page = get_current_page_from_embed(interaction.message.embeds[0])
 
-        tasks = [fetch_player_rank_summary(f, force_refresh=True) for f in friends]
-        summaries = await asyncio.gather(*tasks)
-        self.player_summaries = sorted(summaries, key=lambda p: p["elo"], reverse=True)
-        self.total_pages = max(1, (len(self.player_summaries) - 1) // self.per_page + 1)
+        await self._ensure_data(interaction, force_refresh=True)
+
         if self.page >= self.total_pages:
-            self.page = self.total_pages - 1
+            self.page = max(0, self.total_pages - 1)
 
         self.update_buttons()
         await interaction.edit_original_response(embed=self.get_embed(), view=self)
 
-    @discord.ui.button(label="ถัดไป ▶️", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(
+        label="ถัดไป ▶️",
+        style=discord.ButtonStyle.secondary,
+        custom_id="checkrank:next",
+        row=0,
+    )
     async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.page < self.total_pages - 1:
-            self.page += 1
+        await self._ensure_data(interaction, force_refresh=False)
+        current_page = get_current_page_from_embed(interaction.message.embeds[0]) if interaction.message.embeds else self.page
+        if current_page < self.total_pages - 1:
+            self.page = current_page + 1
             self.update_buttons()
             await interaction.response.edit_message(embed=self.get_embed(), view=self)
         else:
             await interaction.response.defer()
-
-    async def on_timeout(self):
-        for item in self.children:
-            if isinstance(item, discord.ui.Button):
-                item.disabled = True
-        if self.message:
-            try:
-                await self.message.edit(view=self)
-            except Exception:
-                pass
 
 
 async def setup(bot: commands.Bot):

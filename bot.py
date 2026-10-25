@@ -30,6 +30,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ValoTracker")
 
+# Mute noisy HTTP request spam and gateway logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("discord.gateway").setLevel(logging.WARNING)
+
 
 class ValoTrackerBot(commands.Bot):
     def __init__(self):
