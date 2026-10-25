@@ -1,10 +1,11 @@
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 import config
 from database.db import (
@@ -14,33 +15,48 @@ from database.db import (
     get_users_by_discord_id,
     save_or_update_user,
     set_selected_account,
+    update_account_shard,
+    update_account_tokens,
 )
 from database.models import UserAccount
 from services.account_renderer import render_accounts_dashboard
-from services.crypto import encrypt_token
+from services.crypto import decrypt_token, encrypt_token
 from services.riot_auth import (
     generate_login_url,
     get_player_affinity,
     get_player_info,
     get_tokens,
+    refresh_tokens,
 )
 
 logger = logging.getLogger(__name__)
 
 
 def extract_auth_code(redirect_url: str) -> str | None:
-    """Extracts the 'code' parameter from the Riot OAuth2 redirect URL."""
+    """Extracts the 'code' parameter from the Riot OAuth2 redirect URL or raw code string."""
+    cleaned = redirect_url.strip().strip("\"'<>")
     try:
-        parsed = urlparse(redirect_url)
+        # If user directly pasted code=xyz
+        if cleaned.startswith("code="):
+            return cleaned.split("code=", 1)[1].split("&")[0].split("#")[0].strip()
+
+        parsed = urlparse(cleaned)
         # Check query string
         query_params = parse_qs(parsed.query)
         if "code" in query_params and query_params["code"]:
             return query_params["code"][0]
-        # Sometimes query params might be in fragment if format differs
+        # Check fragment if format differs
         if parsed.fragment:
             fragment_params = parse_qs(parsed.fragment)
             if "code" in fragment_params and fragment_params["code"]:
                 return fragment_params["code"][0]
+
+        # Fallback substring search if scheme was missing
+        if "code=" in cleaned:
+            parts = cleaned.split("code=", 1)
+            code_candidate = parts[1].split("&")[0].split("#")[0].strip()
+            if code_candidate:
+                return code_candidate
     except Exception as e:
         logger.warning("Error parsing redirect URL: %s", e)
     return None
@@ -181,6 +197,97 @@ class LoginView(discord.ui.View):
 class AuthCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.auto_refresh_tokens_task.start()
+
+    def cog_unload(self):
+        self.auto_refresh_tokens_task.cancel()
+
+    @tasks.loop(hours=24)
+    async def auto_refresh_tokens_task(self):
+        """
+        Background keeper: Automatically refreshes Riot tokens every 24 hours
+        for all registered accounts in ValoTracker.db to reset Riot's 30-day idle expiry timer.
+        """
+        logger.info("[Auto-Refresh Task] Starting daily background token refresh...")
+        try:
+            accounts = await get_all_users()
+            if not accounts:
+                logger.info("[Auto-Refresh Task] No accounts found in database to refresh.")
+                return
+
+            success_count = 0
+            failed_count = 0
+
+            for account in accounts:
+                try:
+                    r_token = decrypt_token(account.encrypted_token, account.nonce, account.tag)
+                    token_data = await refresh_tokens(r_token)
+
+                    if not token_data or "access_token" not in token_data:
+                        logger.warning(
+                            "[Auto-Refresh Task] Failed to refresh token for Account ID %s (%s, Discord: %s)",
+                            account.id,
+                            account.name,
+                            account.discord_user_id,
+                        )
+                        failed_count += 1
+                        continue
+
+                    new_access_token = token_data["access_token"]
+                    new_refresh_token = token_data.get("refresh_token", r_token)
+                    expires_in = token_data.get("expires_in", 3600)
+
+                    new_ct, new_nonce, new_tag = encrypt_token(new_refresh_token)
+                    now_utc = datetime.now(timezone.utc)
+                    new_expires = now_utc + timedelta(seconds=expires_in)
+
+                    await update_account_tokens(
+                        user_id=account.id,
+                        access_token=new_access_token,
+                        token_expires=new_expires,
+                        encrypted_token=new_ct,
+                        nonce=new_nonce,
+                        tag=new_tag,
+                    )
+
+                    id_token = token_data.get("id_token")
+                    if id_token:
+                        live_shard = await get_player_affinity(new_access_token, id_token)
+                        if live_shard and live_shard != account.shard:
+                            await update_account_shard(account.id, live_shard)
+
+                    success_count += 1
+                    logger.info(
+                        "[Auto-Refresh Task] Refreshed Account ID %s (%s) successfully.",
+                        account.id,
+                        account.name,
+                    )
+                except Exception as e:
+                    logger.exception(
+                        "[Auto-Refresh Task] Error refreshing Account ID %s (%s): %s",
+                        account.id,
+                        account.name,
+                        e,
+                    )
+                    failed_count += 1
+
+                # 2-second rate-limit pause between accounts
+                await asyncio.sleep(2)
+
+            logger.info(
+                "[Auto-Refresh Task] Completed: %d succeeded, %d failed out of %d accounts.",
+                success_count,
+                failed_count,
+                len(accounts),
+            )
+        except Exception as e:
+            logger.exception("[Auto-Refresh Task] Unexpected error in task loop: %s", e)
+
+    @auto_refresh_tokens_task.before_loop
+    async def before_auto_refresh_tokens_task(self):
+        await self.bot.wait_until_ready()
+        # Delay 60s after startup to allow bot to finish loading and syncing
+        await asyncio.sleep(60)
 
     @app_commands.command(name="login", description="เข้าสู่ระบบด้วยบัญชี Riot เพื่อดูร้านค้าและใช้งานคำสั่งต่างๆ")
     @app_commands.describe(name="ตั้งชื่อเล่นให้กับบัญชีนี้ (ไม่บังคับ เช่น ไอดีหลัก, ไอดีรอง)")
@@ -189,20 +296,25 @@ class AuthCog(commands.Cog):
 
         embed = discord.Embed(
             title="🔐 เข้าสู่ระบบ Riot Games",
-            description="เข้าสู่ระบบอย่างปลอดภัยผ่านหน้าต่างทางการของ Riot Games",
+            description=(
+                "เข้าสู่ระบบอย่างปลอดภัยผ่านหน้าต่างทางการของ Riot Games\n\n"
+                "💡 **คำแนะนำเพื่อความสะดวก & ป้องกันรหัสผิด**:\n"
+                "แนะนำให้ **คัดลอกลิงก์ด้านล่างไปเปิดใน Chrome / Edge / Safari** ที่คุณเคยล็อกอิน Riot ไว้อยู่แล้ว "
+                "ระบบจะจำเซสชันเดิมและล็อกอินให้อัตโนมัติทันที ไม่ต้องกรอกรหัสผ่านซ้ำ และหลีกเลี่ยงปัญหาของหน้าต่าง Discord"
+            ),
             color=discord.Color.red(),
         )
         embed.add_field(
-            name="ขั้นตอนที่ 1",
-            value=f"กดปุ่ม **ขั้นตอนที่ 1: เปิดลิงก์เข้าสู่ระบบ** ด้านล่าง (หรือ [คลิกที่นี่]({login_url})) แล้วล็อกอินด้วยบัญชี Riot ของคุณ",
+            name="1️⃣ คัดลอกลิงก์เปิดในเบราว์เซอร์ภายนอก",
+            value=f"```text\n{login_url}\n```\n*(หรือคลิกปุ่ม **ขั้นตอนที่ 1** ด้านล่างหากต้องการเปิดทันที)*",
             inline=False,
         )
         embed.add_field(
-            name="ขั้นตอนที่ 2",
-            value="เมื่อล็อกอินสำเร็จ เบราว์เซอร์จะพาไปยังหน้าเว็บที่ขึ้นข้อความ Error (เช่น `http://localhost/redirect?code=...`) ให้คัดลอก URL ทั้งหมดจาก Address Bar แล้วกดปุ่ม **ขั้นตอนที่ 2: กรอก Redirect URL**",
+            name="2️⃣ นำ Redirect URL มาใส่",
+            value="เมื่อล็อกอินเสร็จ หน้าเว็บจะเปลี่ยนเป็น `http://localhost/redirect?code=...` (ขึ้นหน้า Error เป็นเรื่องปกติ) ให้คัดลอก URL ทั้งหมดด้านบน แล้วกดปุ่ม **ขั้นตอนที่ 2: กรอก Redirect URL**",
             inline=False,
         )
-        embed.set_footer(text="บอทจะไม่ทราบรหัสผ่านของคุณ • Powered by localhostvlr")
+        embed.set_footer(text="บอทจะไม่ทราบรหัสผ่านของคุณ • ปลอดภัยด้วยการเข้ารหัส AES-256-GCM")
 
         view = LoginView(login_url=login_url, account_name=name)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
