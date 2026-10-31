@@ -97,7 +97,15 @@ class LoginModal(discord.ui.Modal, title="กรอก Redirect URL จาก Ri
                 return
 
             access_token = tokens["access_token"]
-            refresh_token = tokens.get("refresh_token", "")
+            refresh_token = tokens.get("refresh_token")
+            if not refresh_token:
+                await interaction.followup.send(
+                    f"{interaction.user.mention} ❌ เข้าสู่ระบบไม่สมบูรณ์: Riot ไม่ได้ส่ง Refresh Token มาให้\n"
+                    f"👉 **วิธีแก้**: กด `/login` ใหม่ และ**ต้องติ๊กถูกที่ช่อง 'จำฉันไว้ในระบบ' (Stay signed in)** บนหน้าเว็บ Riot",
+                    ephemeral=True,
+                )
+                return
+
             id_token = tokens.get("id_token")
             expires_in = tokens.get("expires_in", 3600)
 
@@ -298,9 +306,10 @@ class AuthCog(commands.Cog):
             title="🔐 เข้าสู่ระบบ Riot Games",
             description=(
                 "เข้าสู่ระบบอย่างปลอดภัยผ่านหน้าต่างทางการของ Riot Games\n\n"
-                "💡 **คำแนะนำเพื่อความสะดวก & ป้องกันรหัสผิด**:\n"
-                "แนะนำให้ **คัดลอกลิงก์ด้านล่างไปเปิดใน Chrome / Edge / Safari** ที่คุณเคยล็อกอิน Riot ไว้อยู่แล้ว "
-                "ระบบจะจำเซสชันเดิมและล็อกอินให้อัตโนมัติทันที ไม่ต้องกรอกรหัสผ่านซ้ำ และหลีกเลี่ยงปัญหาของหน้าต่าง Discord"
+                "💡 **ขั้นตอนสำคัญในการเข้าสู่ระบบ**:\n"
+                "1. นำลิงก์ไปเปิดในเบราว์เซอร์ภายนอก (Chrome / Edge / Safari)\n"
+                "2. ⚠️ **ต้องติ๊กถูกช่อง 'จำฉันไว้ในระบบ' (Stay signed in)** ก่อนกดเข้าสู่ระบบเสมอ (เพื่อป้องกัน Token หมดอายุ)\n"
+                "3. ⚠️ **ห้ามกด 'ออกจากระบบ' (Sign Out)** บนหน้าเว็บ Riot หลังจากคัดลอก URL แล้ว เพราะจะทำให้ Token ถูกยกเลิกทันที"
             ),
             color=discord.Color.red(),
         )
