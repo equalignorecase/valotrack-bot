@@ -50,10 +50,13 @@ async def get_player_names(
     if not puuids:
         return {}
 
+    client_version = await get_client_version()
     url = f"{get_pd_url(shard)}/name-service/v2/players"
     headers = {
         "Authorization": f"Bearer {access_token}",
         "X-Riot-Entitlements-JWT": entitlement,
+        "X-Riot-ClientPlatform": PLATFORM_HEADER,
+        "X-Riot-ClientVersion": client_version,
         "Content-Type": "application/json",
     }
 

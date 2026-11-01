@@ -16,19 +16,31 @@ from services.valorant_api import get_weapon_info
 
 logger = logging.getLogger(__name__)
 
+# Mutex locks per user to prevent concurrent duplicate refresh requests
+_user_refresh_locks: dict[int, asyncio.Lock] = {}
+
+
+def _get_user_lock(user_id: int) -> asyncio.Lock:
+    if user_id not in _user_refresh_locks:
+        _user_refresh_locks[user_id] = asyncio.Lock()
+    return _user_refresh_locks[user_id]
+
 
 async def get_valid_account(discord_user_id: int) -> UserAccount | None:
     """
     Retrieves the user's selected account, refreshing the access token if needed.
+    Uses an asyncio mutex lock to prevent concurrent refresh token collisions.
     """
-    account = await get_selected_user(discord_user_id)
-    if not account:
-        return None
+    lock = _get_user_lock(discord_user_id)
+    async with lock:
+        account = await get_selected_user(discord_user_id)
+        if not account:
+            return None
 
-    # Check if token is still valid (with 1-minute safety window)
-    now_utc = datetime.now(timezone.utc)
-    if account.token_expires > (now_utc + timedelta(minutes=1)):
-        return account
+        # Check if token is still valid (with 1-minute safety window)
+        now_utc = datetime.now(timezone.utc)
+        if account.token_expires > (now_utc + timedelta(minutes=1)):
+            return account
 
     # Token is expired or expiring soon, refresh it
     try:

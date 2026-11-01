@@ -5,6 +5,8 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+RIOT_CLIENT_USER_AGENT = "RiotClient/release-13.09-shipping-11-5777412 rso-auth (Windows;10;;Professional, x64)"
+
 AUTH_URL = (
     "https://auth.riotgames.com/authorize"
     "?client_id=riot-client"
@@ -33,7 +35,10 @@ async def get_tokens(code: str) -> dict[str, Any] | None:
         "redirect_uri": "http://localhost/redirect",
         "client_id": "riot-client",
     }
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": RIOT_CLIENT_USER_AGENT,
+    }
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
@@ -56,7 +61,10 @@ async def refresh_tokens(refresh_token: str) -> dict[str, Any] | None:
         "refresh_token": refresh_token,
         "client_id": "riot-client",
     }
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": RIOT_CLIENT_USER_AGENT,
+    }
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
