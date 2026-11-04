@@ -1,9 +1,9 @@
 import asyncio
 import logging
 from typing import Any
-import httpx
 
 from services.henrik_api import get_account_by_puuid, get_matches, get_mmr
+from services.http_client import get_http_client
 from services.riot_store import PLATFORM_HEADER
 from services.valorant_api import get_agent_info, get_client_version, get_map_info, get_tier_info
 
@@ -61,25 +61,25 @@ async def get_player_names(
     }
 
     results: dict[str, dict[str, str]] = {}
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            resp = await client.put(url, headers=headers, json=puuids)
-            if resp.status_code == 200:
-                data = resp.json()
-                for item in data:
-                    sub = item.get("Subject")
-                    g_name = item.get("GameName") or "Player"
-                    tag = item.get("TagLine") or "0000"
-                    if sub:
-                        results[sub] = {
-                            "name": g_name,
-                            "tag": tag,
-                            "display": f"{g_name}#{tag}",
-                        }
-                return results
-            logger.warning("Riot Name-Service returned status %s: %s", resp.status_code, resp.text)
-        except Exception as e:
-            logger.exception("Error in get_player_names: %s", e)
+    client = get_http_client()
+    try:
+        resp = await client.put(url, headers=headers, json=puuids)
+        if resp.status_code == 200:
+            data = resp.json()
+            for item in data:
+                sub = item.get("Subject")
+                g_name = item.get("GameName") or "Player"
+                tag = item.get("TagLine") or "0000"
+                if sub:
+                    results[sub] = {
+                        "name": g_name,
+                        "tag": tag,
+                        "display": f"{g_name}#{tag}",
+                    }
+            return results
+        logger.warning("Riot Name-Service returned status %s: %s", resp.status_code, resp.text)
+    except Exception as e:
+        logger.exception("Error in get_player_names: %s", e)
 
     # Fallback to Henrik API for any unresolved names
     for p in puuids:
@@ -120,42 +120,42 @@ async def get_live_match_raw(
         "X-Riot-ClientVersion": client_version,
     }
 
-    async with httpx.AsyncClient(timeout=12.0) as client:
-        # 1. Check Pre-Game (Agent Select)
-        try:
-            pre_player_url = f"{glz_base}/pre-game/v1/players/{puuid}"
-            resp = await client.get(pre_player_url, headers=headers)
-            if resp.status_code == 200:
-                match_id = resp.json().get("MatchID")
-                if match_id:
-                    match_url = f"{glz_base}/pre-game/v1/matches/{match_id}"
-                    m_resp = await client.get(match_url, headers=headers)
-                    if m_resp.status_code == 200:
-                        return {
-                            "type": "pregame",
-                            "match_id": match_id,
-                            "data": m_resp.json(),
-                        }
-        except Exception as e:
-            logger.debug("Error checking pregame: %s", e)
+    client = get_http_client()
+    # 1. Check Pre-Game (Agent Select)
+    try:
+        pre_player_url = f"{glz_base}/pre-game/v1/players/{puuid}"
+        resp = await client.get(pre_player_url, headers=headers)
+        if resp.status_code == 200:
+            match_id = resp.json().get("MatchID")
+            if match_id:
+                match_url = f"{glz_base}/pre-game/v1/matches/{match_id}"
+                m_resp = await client.get(match_url, headers=headers)
+                if m_resp.status_code == 200:
+                    return {
+                        "type": "pregame",
+                        "match_id": match_id,
+                        "data": m_resp.json(),
+                    }
+    except Exception as e:
+        logger.debug("Error checking pregame: %s", e)
 
-        # 2. Check Core-Game (In-Match)
-        try:
-            core_player_url = f"{glz_base}/core-game/v1/players/{puuid}"
-            resp = await client.get(core_player_url, headers=headers)
-            if resp.status_code == 200:
-                match_id = resp.json().get("MatchID")
-                if match_id:
-                    match_url = f"{glz_base}/core-game/v1/matches/{match_id}"
-                    m_resp = await client.get(match_url, headers=headers)
-                    if m_resp.status_code == 200:
-                        return {
-                            "type": "coregame",
-                            "match_id": match_id,
-                            "data": m_resp.json(),
-                        }
-        except Exception as e:
-            logger.debug("Error checking coregame: %s", e)
+    # 2. Check Core-Game (In-Match)
+    try:
+        core_player_url = f"{glz_base}/core-game/v1/players/{puuid}"
+        resp = await client.get(core_player_url, headers=headers)
+        if resp.status_code == 200:
+            match_id = resp.json().get("MatchID")
+            if match_id:
+                match_url = f"{glz_base}/core-game/v1/matches/{match_id}"
+                m_resp = await client.get(match_url, headers=headers)
+                if m_resp.status_code == 200:
+                    return {
+                        "type": "coregame",
+                        "match_id": match_id,
+                        "data": m_resp.json(),
+                    }
+    except Exception as e:
+        logger.debug("Error checking coregame: %s", e)
 
     return None
 

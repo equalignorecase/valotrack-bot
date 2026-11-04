@@ -1,15 +1,17 @@
 import asyncio
 import io
 import logging
-from typing import Any
-import httpx
 import os
+from typing import Any
 from PIL import Image, ImageDraw, ImageFont
+
+from services.http_client import get_http_client
 
 logger = logging.getLogger(__name__)
 
 # Image cache for agent and rank icons: {url: PIL.Image}
 _ICON_CACHE: dict[str, Image.Image] = {}
+
 
 def resolve_font_path(bold: bool = False) -> str | None:
     """Finds available system fonts across Windows, macOS, and Linux."""
@@ -85,6 +87,19 @@ def get_tier_color(tier_name: str) -> tuple[int, int, int]:
     return (138, 149, 160)
 
 
+def _process_icon_sync(raw_bytes: bytes, size: tuple[int, int], circular: bool) -> Image.Image:
+    img = Image.open(io.BytesIO(raw_bytes)).convert("RGBA")
+    img = img.resize(size, Image.Resampling.LANCZOS)
+    if circular:
+        mask = Image.new("L", size, 0)
+        draw_mask = ImageDraw.Draw(mask)
+        draw_mask.ellipse((0, 0, size[0], size[1]), fill=255)
+        output = Image.new("RGBA", size, (0, 0, 0, 0))
+        output.paste(img, (0, 0), mask=mask)
+        img = output
+    return img
+
+
 async def _fetch_icon(url: str, size: tuple[int, int], circular: bool = False) -> Image.Image | None:
     if not url:
         return None
@@ -92,31 +107,19 @@ async def _fetch_icon(url: str, size: tuple[int, int], circular: bool = False) -
     if cache_key in _ICON_CACHE:
         return _ICON_CACHE[cache_key]
 
+    client = get_http_client()
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.get(url)
-            if resp.status_code == 200:
-                img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
-                img = img.resize(size, Image.Resampling.LANCZOS)
-                if circular:
-                    mask = Image.new("L", size, 0)
-                    draw_mask = ImageDraw.Draw(mask)
-                    draw_mask.ellipse((0, 0, size[0], size[1]), fill=255)
-                    output = Image.new("RGBA", size, (0, 0, 0, 0))
-                    output.paste(img, (0, 0), mask=mask)
-                    img = output
-                _ICON_CACHE[cache_key] = img
-                return img
+        resp = await client.get(url)
+        if resp.status_code == 200:
+            img = await asyncio.to_thread(_process_icon_sync, resp.content, size, circular)
+            _ICON_CACHE[cache_key] = img
+            return img
     except Exception as e:
         logger.debug("Failed to load icon from %s: %s", url, e)
     return None
 
 
-async def render_scoreboard(match_data: dict[str, Any], target_puuid: str | None = None) -> io.BytesIO:
-    """
-    Renders a full match scoreboard matching the modern Valorant UI theme.
-    Returns: BytesIO buffer containing the generated PNG image.
-    """
+def _draw_scoreboard_sync(match_data: dict[str, Any], target_puuid: str | None = None) -> io.BytesIO:
     metadata = match_data.get("metadata", {})
     teams = match_data.get("teams", {})
     all_players = match_data.get("players", {}).get("all_players", [])
@@ -155,17 +158,6 @@ async def render_scoreboard(match_data: dict[str, Any], target_puuid: str | None
 
     red_players.sort(key=lambda x: x["_acs"], reverse=True)
     blue_players.sort(key=lambda x: x["_acs"], reverse=True)
-
-    # Pre-fetch icons
-    tasks = []
-    for p in all_players:
-        agent_url = p.get("assets", {}).get("agent", {}).get("small", "")
-        tasks.append(_fetch_icon(agent_url, (38, 38), circular=True))
-        tier_id = p.get("currenttier", 0)
-        tier_url = f"https://media.valorant-api.com/competitivetiers/03621f52-342b-cf4e-4f86-9350a49c6d04/{tier_id}/smallicon.png"
-        tasks.append(_fetch_icon(tier_url, (24, 24), circular=False))
-
-    await asyncio.gather(*tasks)
 
     # Canvas Setup
     width = 1060
@@ -300,3 +292,26 @@ async def render_scoreboard(match_data: dict[str, Any], target_puuid: str | None
     img.save(buf, format="PNG", optimize=True)
     buf.seek(0)
     return buf
+
+
+async def render_scoreboard(match_data: dict[str, Any], target_puuid: str | None = None) -> io.BytesIO:
+    """
+    Renders a full match scoreboard matching the modern Valorant UI theme.
+    Offloads CPU-bound Pillow drawing to a background thread.
+    Returns: BytesIO buffer containing the generated PNG image.
+    """
+    all_players = match_data.get("players", {}).get("all_players", [])
+
+    # Pre-fetch icons concurrently
+    tasks = []
+    for p in all_players:
+        agent_url = p.get("assets", {}).get("agent", {}).get("small", "")
+        tasks.append(_fetch_icon(agent_url, (38, 38), circular=True))
+        tier_id = p.get("currenttier", 0)
+        tier_url = f"https://media.valorant-api.com/competitivetiers/03621f52-342b-cf4e-4f86-9350a49c6d04/{tier_id}/smallicon.png"
+        tasks.append(_fetch_icon(tier_url, (24, 24), circular=False))
+
+    if tasks:
+        await asyncio.gather(*tasks)
+
+    return await asyncio.to_thread(_draw_scoreboard_sync, match_data, target_puuid)

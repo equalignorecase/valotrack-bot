@@ -5,11 +5,11 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
-import httpx
 
 from database.db import get_account_by_id, update_account_shard, update_account_tokens
 from database.models import UserAccount
 from services.crypto import decrypt_token, encrypt_token
+from services.http_client import get_http_client
 from services.valorant_api import get_riot_user_agent
 
 logger = logging.getLogger(__name__)
@@ -78,14 +78,14 @@ async def get_tokens(code: str) -> dict[str, Any] | None:
         "User-Agent": user_agent,
     }
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            response = await client.post(url, data=payload, headers=headers)
-            if response.status_code == 200:
-                return response.json()
-            logger.error("Failed to get tokens. Status: %s - %s", response.status_code, response.text)
-        except Exception as e:
-            logger.exception("Error in get_tokens: %s", e)
+    client = get_http_client()
+    try:
+        response = await client.post(url, data=payload, headers=headers)
+        if response.status_code == 200:
+            return response.json()
+        logger.error("Failed to get tokens. Status: %s - %s", response.status_code, response.text)
+    except Exception as e:
+        logger.exception("Error in get_tokens: %s", e)
     return None
 
 
@@ -113,26 +113,26 @@ async def refresh_tokens(refresh_token: str) -> dict[str, Any] | None:
         "User-Agent": user_agent,
     }
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            response = await client.post(url, data=payload, headers=headers)
-            if response.status_code == 200:
-                data = response.json()
-                if isinstance(data, dict) and data.get("access_token"):
-                    return data
-                return None
+    client = get_http_client()
+    try:
+        response = await client.post(url, data=payload, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            if isinstance(data, dict) and data.get("access_token"):
+                return data
+            return None
 
-            logger.error("Failed to refresh tokens. Status: %s - %s", response.status_code, response.text)
-            if response.status_code in (400, 401):
-                try:
-                    err_data = response.json()
-                    err_code = err_data.get("error") if isinstance(err_data, dict) else None
-                except Exception:
-                    err_code = None
-                if err_code in ("invalid_grant", "bad_claims", "invalid_request"):
-                    return {"_terminal": True, "error": err_code}
-        except Exception as e:
-            logger.exception("Error in refresh_tokens: %s", e)
+        logger.error("Failed to refresh tokens. Status: %s - %s", response.status_code, response.text)
+        if response.status_code in (400, 401):
+            try:
+                err_data = response.json()
+                err_code = err_data.get("error") if isinstance(err_data, dict) else None
+            except Exception:
+                err_code = None
+            if err_code in ("invalid_grant", "bad_claims", "invalid_request"):
+                return {"_terminal": True, "error": err_code}
+    except Exception as e:
+        logger.exception("Error in refresh_tokens: %s", e)
     return None
 
 
@@ -255,14 +255,14 @@ async def get_player_info(access_token: str) -> dict[str, Any] | None:
     url = "https://auth.riotgames.com/userinfo"
     headers = {"Authorization": f"Bearer {access_token}"}
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            response = await client.get(url, headers=headers)
-            if response.status_code == 200:
-                return response.json()
-            logger.error("Failed to get player info. Status: %s - %s", response.status_code, response.text)
-        except Exception as e:
-            logger.exception("Error in get_player_info: %s", e)
+    client = get_http_client()
+    try:
+        response = await client.get(url, headers=headers)
+        if response.status_code == 200:
+            return response.json()
+        logger.error("Failed to get player info. Status: %s - %s", response.status_code, response.text)
+    except Exception as e:
+        logger.exception("Error in get_player_info: %s", e)
     return None
 
 
@@ -276,15 +276,15 @@ async def get_entitlement(access_token: str) -> str | None:
         "Authorization": f"Bearer {access_token}",
     }
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            response = await client.post(url, headers=headers, json={})
-            if response.status_code == 200:
-                data = response.json()
-                return data.get("entitlements_token")
-            logger.error("Failed to get entitlement token. Status: %s - %s", response.status_code, response.text)
-        except Exception as e:
-            logger.exception("Error in get_entitlement: %s", e)
+    client = get_http_client()
+    try:
+        response = await client.post(url, headers=headers, json={})
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("entitlements_token")
+        logger.error("Failed to get entitlement token. Status: %s - %s", response.status_code, response.text)
+    except Exception as e:
+        logger.exception("Error in get_entitlement: %s", e)
     return None
 
 
@@ -303,17 +303,17 @@ async def get_player_affinity(access_token: str, id_token: str | None = None) ->
     }
     payload = {"id_token": id_token}
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            response = await client.put(url, headers=headers, json=payload)
-            if response.status_code == 200:
-                data = response.json()
-                live_shard = data.get("affinities", {}).get("live")
-                if live_shard:
-                    logger.info("Player live shard determined from PAS: %s", live_shard)
-                    return live_shard.lower()
-            logger.warning("PAS request failed (status %s): %s", response.status_code, response.text)
-        except Exception as e:
-            logger.exception("Error in get_player_affinity: %s", e)
+    client = get_http_client()
+    try:
+        response = await client.put(url, headers=headers, json=payload)
+        if response.status_code == 200:
+            data = response.json()
+            live_shard = data.get("affinities", {}).get("live")
+            if live_shard:
+                logger.info("Player live shard determined from PAS: %s", live_shard)
+                return live_shard.lower()
+        logger.warning("PAS request failed (status %s): %s", response.status_code, response.text)
+    except Exception as e:
+        logger.exception("Error in get_player_affinity: %s", e)
 
     return "ap"

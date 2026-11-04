@@ -1,8 +1,8 @@
 import logging
 import time
 from typing import Any
-import httpx
 import config
+from services.http_client import get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -43,16 +43,16 @@ async def get_account(name: str, tag: str) -> dict[str, Any] | None:
         return cached
 
     url = f"{BASE_URL}/v1/account/{name}/{tag}"
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            resp = await client.get(url, headers=_get_headers())
-            if resp.status_code == 200:
-                data = resp.json().get("data")
-                _set_to_cache(cache_key, data)
-                return data
-            logger.warning("Henrik API get_account failed (%s): %s", resp.status_code, resp.text)
-        except Exception as e:
-            logger.exception("Error in get_account for %s#%s: %s", name, tag, e)
+    client = get_http_client()
+    try:
+        resp = await client.get(url, headers=_get_headers())
+        if resp.status_code == 200:
+            data = resp.json().get("data")
+            _set_to_cache(cache_key, data)
+            return data
+        logger.warning("Henrik API get_account failed (%s): %s", resp.status_code, resp.text)
+    except Exception as e:
+        logger.exception("Error in get_account for %s#%s: %s", name, tag, e)
     return None
 
 
@@ -66,16 +66,16 @@ async def get_account_by_puuid(puuid: str) -> dict[str, Any] | None:
         return cached
 
     url = f"{BASE_URL}/v1/by-puuid/account/{puuid}"
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            resp = await client.get(url, headers=_get_headers())
-            if resp.status_code == 200:
-                data = resp.json().get("data")
-                _set_to_cache(cache_key, data)
-                return data
-            logger.warning("Henrik API get_account_by_puuid failed (%s): %s", resp.status_code, resp.text)
-        except Exception as e:
-            logger.exception("Error in get_account_by_puuid for %s: %s", puuid, e)
+    client = get_http_client()
+    try:
+        resp = await client.get(url, headers=_get_headers())
+        if resp.status_code == 200:
+            data = resp.json().get("data")
+            _set_to_cache(cache_key, data)
+            return data
+        logger.warning("Henrik API get_account_by_puuid failed (%s): %s", resp.status_code, resp.text)
+    except Exception as e:
+        logger.exception("Error in get_account_by_puuid for %s: %s", puuid, e)
     return None
 
 
@@ -95,7 +95,6 @@ async def get_mmr(
         if cached is not None:
             return cached
 
-
     if puuid:
         url = f"{BASE_URL}/v2/by-puuid/mmr/{shard}/{puuid}"
     elif name and tag:
@@ -103,16 +102,16 @@ async def get_mmr(
     else:
         return None
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            resp = await client.get(url, headers=_get_headers())
-            if resp.status_code == 200:
-                data = resp.json().get("data")
-                _set_to_cache(cache_key, data)
-                return data
-            logger.warning("Henrik API get_mmr failed (%s): %s", resp.status_code, resp.text)
-        except Exception as e:
-            logger.exception("Error in get_mmr: %s", e)
+    client = get_http_client()
+    try:
+        resp = await client.get(url, headers=_get_headers())
+        if resp.status_code == 200:
+            data = resp.json().get("data")
+            _set_to_cache(cache_key, data)
+            return data
+        logger.warning("Henrik API get_mmr failed (%s): %s", resp.status_code, resp.text)
+    except Exception as e:
+        logger.exception("Error in get_mmr: %s", e)
     return None
 
 
@@ -132,16 +131,16 @@ async def get_matches(shard: str, puuid: str | None = None, name: str | None = N
     else:
         return []
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            resp = await client.get(url, headers=_get_headers())
-            if resp.status_code == 200:
-                matches = resp.json().get("data", [])
-                _set_to_cache(cache_key, matches)
-                return matches
-            logger.warning("Henrik API get_matches failed (%s): %s", resp.status_code, resp.text)
-        except Exception as e:
-            logger.exception("Error in get_matches: %s", e)
+    client = get_http_client()
+    try:
+        resp = await client.get(url, headers=_get_headers())
+        if resp.status_code == 200:
+            matches = resp.json().get("data", [])
+            _set_to_cache(cache_key, matches)
+            return matches
+        logger.warning("Henrik API get_matches failed (%s): %s", resp.status_code, resp.text)
+    except Exception as e:
+        logger.exception("Error in get_matches: %s", e)
     return []
 
 
@@ -171,16 +170,16 @@ async def get_stored_mmr_history(
     else:
         return []
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            resp = await client.get(url, headers=_get_headers())
-            if resp.status_code == 200:
-                data = resp.json().get("data", [])
-                _set_to_cache(cache_key, data)
-                return data
-            logger.debug("Henrik API get_stored_mmr_history returned %s", resp.status_code)
-        except Exception as e:
-            logger.debug("Error in get_stored_mmr_history: %s", e)
+    client = get_http_client()
+    try:
+        resp = await client.get(url, headers=_get_headers())
+        if resp.status_code == 200:
+            data = resp.json().get("data", [])
+            _set_to_cache(cache_key, data)
+            return data
+        logger.debug("Henrik API get_stored_mmr_history returned %s", resp.status_code)
+    except Exception as e:
+        logger.debug("Error in get_stored_mmr_history: %s", e)
     return []
 
 
@@ -246,17 +245,15 @@ async def get_leaderboard(
     else:
         url = f"{BASE_URL}/v3/leaderboard/{s}/pc?start_index=1&size=200"
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            resp = await client.get(url, headers=_get_headers())
-            if resp.status_code == 200:
-                raw_data = resp.json()
-                norm_data = _normalize_leaderboard_data(raw_data)
-                _LEADERBOARD_CACHE[cache_key] = (now, norm_data)
-                return norm_data
-            logger.warning("Henrik API get_leaderboard failed (%s): %s", resp.status_code, resp.text[:200])
-        except Exception as e:
-            logger.exception("Error in get_leaderboard for shard %s: %s", s, e)
+    client = get_http_client()
+    try:
+        resp = await client.get(url, headers=_get_headers())
+        if resp.status_code == 200:
+            raw_data = resp.json()
+            norm_data = _normalize_leaderboard_data(raw_data)
+            _LEADERBOARD_CACHE[cache_key] = (now, norm_data)
+            return norm_data
+        logger.warning("Henrik API get_leaderboard failed (%s): %s", resp.status_code, resp.text[:200])
+    except Exception as e:
+        logger.exception("Error in get_leaderboard for shard %s: %s", s, e)
     return None
-
-

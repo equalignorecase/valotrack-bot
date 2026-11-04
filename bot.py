@@ -7,6 +7,7 @@ import discord
 from discord.ext import commands
 import config
 from database.db import init_db
+from services.http_client import close_http_client
 
 # Windows Console UTF-8 & Event Loop compatibility
 if sys.platform == "win32":
@@ -67,6 +68,10 @@ class ValoTrackerBot(commands.Bot):
             logger.info("Synced %d global slash command(s)", len(synced_global))
         except Exception as e:
             logger.exception("Failed to synchronize application commands: %s", e)
+
+    async def close(self):
+        await close_http_client()
+        await super().close()
 
     async def on_ready(self):
         logger.info("Logged in as %s (ID: %s)", self.user, self.user.id)

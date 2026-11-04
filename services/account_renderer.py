@@ -4,9 +4,18 @@ from datetime import datetime, timezone
 from PIL import Image, ImageDraw
 
 from database.models import UserAccount
+from services.crypto import decrypt_token
 from services.scoreboard import get_font
 
 logger = logging.getLogger(__name__)
+
+
+def _has_refresh_token(acc: UserAccount) -> bool:
+    try:
+        r_token = decrypt_token(acc.encrypted_token, acc.nonce, acc.tag)
+        return bool(r_token and r_token.strip())
+    except Exception:
+        return False
 
 
 def render_accounts_dashboard(accounts: list[UserAccount]) -> io.BytesIO:
@@ -25,7 +34,8 @@ def render_accounts_dashboard(accounts: list[UserAccount]) -> io.BytesIO:
 
     now_utc = datetime.now(timezone.utc)
     total = len(accounts)
-    valid_cnt = sum(1 for a in accounts if a.token_expires > now_utc)
+    session_states = [_has_refresh_token(a) for a in accounts]
+    valid_cnt = sum(1 for alive in session_states if alive)
     expired_cnt = total - valid_cnt
 
     # Fonts
@@ -92,12 +102,17 @@ def render_accounts_dashboard(accounts: list[UserAccount]) -> io.BytesIO:
         draw.text((330, y + 13), acc.shard.upper()[:4], fill=(130, 190, 250), font=font_badge)
 
         # Token status Pill
-        is_exp = (acc.token_expires <= now_utc)
-        if is_exp:
+        has_refresh = session_states[idx]
+        if not has_refresh:
             draw.rounded_rectangle([(420, y + 10), (510, y + 32)], radius=4, fill=(55, 20, 25), outline=(255, 70, 85))
             draw.text((435, y + 13), "EXPIRED", fill=(255, 80, 95), font=font_badge)
-            time_label = "Expired"
+            time_label = "Needs /login"
             time_col = (200, 100, 100)
+        elif acc.token_expires <= now_utc:
+            draw.rounded_rectangle([(420, y + 10), (515, y + 32)], radius=4, fill=(20, 50, 35), outline=(82, 224, 162))
+            draw.text((432, y + 13), "AUTO-SYNC", fill=(82, 224, 162), font=font_badge)
+            time_label = "Ready (auto-refresh)"
+            time_col = (140, 220, 170)
         else:
             draw.rounded_rectangle([(420, y + 10), (490, y + 32)], radius=4, fill=(20, 50, 35), outline=(82, 224, 162))
             draw.text((435, y + 13), "VALID", fill=(82, 224, 162), font=font_badge)

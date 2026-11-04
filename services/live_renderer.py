@@ -2,9 +2,9 @@ import asyncio
 import io
 import logging
 from typing import Any
-import httpx
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+from services.http_client import get_http_client
 from services.scoreboard import _ICON_CACHE, _fetch_icon, get_font, get_tier_color
 
 logger = logging.getLogger(__name__)
@@ -12,20 +12,24 @@ logger = logging.getLogger(__name__)
 _SPLASH_CACHE: dict[str, Image.Image] = {}
 
 
+def _decode_splash_sync(raw_bytes: bytes, size: tuple[int, int]) -> Image.Image:
+    img = Image.open(io.BytesIO(raw_bytes)).convert("RGBA")
+    return img.resize(size, Image.Resampling.LANCZOS)
+
+
 async def _fetch_splash(url: str, size: tuple[int, int]) -> Image.Image | None:
-    """Fetches and caches map splash background image."""
+    """Fetches and caches map splash background image using shared HTTP client."""
     if not url:
         return None
     if url in _SPLASH_CACHE:
         return _SPLASH_CACHE[url]
+    client = get_http_client()
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url)
-            if resp.status_code == 200:
-                img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
-                img = img.resize(size, Image.Resampling.LANCZOS)
-                _SPLASH_CACHE[url] = img
-                return img
+        resp = await client.get(url)
+        if resp.status_code == 200:
+            img = await asyncio.to_thread(_decode_splash_sync, resp.content, size)
+            _SPLASH_CACHE[url] = img
+            return img
     except Exception as e:
         logger.debug("Failed to load map splash %s: %s", url, e)
     return None
@@ -38,15 +42,11 @@ def hex_to_rgb(hex_str: str) -> tuple[int, int, int]:
     return (138, 149, 160)
 
 
-async def render_live_match(lobby_data: dict[str, Any]) -> io.BytesIO:
-    """
-    Renders a high-resolution live match scoreboard card with Valorant UI styling.
-    """
+def _draw_live_match_sync(lobby_data: dict[str, Any], splash_img: Image.Image | None) -> io.BytesIO:
     width = 1200
     height = 760
 
     map_name = lobby_data.get("map_name", "UNKNOWN MAP").upper()
-    map_splash_url = lobby_data.get("map_splash", "")
     mode_name = lobby_data.get("mode_name", "COMPETITIVE").upper()
     shard = lobby_data.get("shard", "AP")
     is_pregame = lobby_data.get("is_pregame", False)
@@ -57,13 +57,11 @@ async def render_live_match(lobby_data: dict[str, Any]) -> io.BytesIO:
     canvas = Image.new("RGBA", (width, height), color=(15, 23, 33, 255))
 
     # 1. Background: Map Splash with Gaussian Blur & Dark Tint
-    if map_splash_url:
-        splash_img = await _fetch_splash(map_splash_url, (width, height))
-        if splash_img:
-            blurred_splash = splash_img.filter(ImageFilter.GaussianBlur(14))
-            dark_overlay = Image.new("RGBA", (width, height), (10, 16, 24, 215))
-            canvas.paste(blurred_splash, (0, 0))
-            canvas = Image.alpha_composite(canvas, dark_overlay)
+    if splash_img:
+        blurred_splash = splash_img.filter(ImageFilter.GaussianBlur(14))
+        dark_overlay = Image.new("RGBA", (width, height), (10, 16, 24, 215))
+        canvas.paste(blurred_splash, (0, 0))
+        canvas = Image.alpha_composite(canvas, dark_overlay)
 
     draw = ImageDraw.Draw(canvas)
 
@@ -79,17 +77,6 @@ async def render_live_match(lobby_data: dict[str, Any]) -> io.BytesIO:
     font_stats = get_font(10, bold=True)
     font_party = get_font(9, bold=True)
     font_footer = get_font(11, bold=False)
-
-    # Pre-fetch player icons & rank icons
-    all_players = lobby_data.get("all_players") or (blue_players + red_players)
-    icon_tasks = []
-    for p in all_players:
-        if p.get("agent_icon"):
-            icon_tasks.append(_fetch_icon(p["agent_icon"], (42, 42), circular=True))
-        if p.get("tier_icon"):
-            icon_tasks.append(_fetch_icon(p["tier_icon"], (24, 24), circular=False))
-    if icon_tasks:
-        await asyncio.gather(*icon_tasks)
 
     # 2. Header Bar
     # Status Pill (Live Match vs Agent Select)
@@ -241,3 +228,37 @@ async def render_live_match(lobby_data: dict[str, Any]) -> io.BytesIO:
     canvas.save(buf, format="PNG", optimize=True)
     buf.seek(0)
     return buf
+
+
+async def render_live_match(lobby_data: dict[str, Any]) -> io.BytesIO:
+    """
+    Renders a high-resolution live match scoreboard card with Valorant UI styling.
+    Offloads CPU-bound Pillow drawing and Gaussian blur to a background thread.
+    """
+    width = 1200
+    height = 760
+    map_splash_url = lobby_data.get("map_splash", "")
+    blue_players = lobby_data.get("blue_players", [])
+    red_players = lobby_data.get("red_players", [])
+    all_players = lobby_data.get("all_players") or (blue_players + red_players)
+
+    icon_tasks = []
+    for p in all_players:
+        if p.get("agent_icon"):
+            icon_tasks.append(_fetch_icon(p["agent_icon"], (42, 42), circular=True))
+        if p.get("tier_icon"):
+            icon_tasks.append(_fetch_icon(p["tier_icon"], (24, 24), circular=False))
+
+    splash_task = _fetch_splash(map_splash_url, (width, height)) if map_splash_url else None
+
+    if splash_task and icon_tasks:
+        splash_img, _ = await asyncio.gather(splash_task, asyncio.gather(*icon_tasks))
+    elif splash_task:
+        splash_img = await splash_task
+    elif icon_tasks:
+        await asyncio.gather(*icon_tasks)
+        splash_img = None
+    else:
+        splash_img = None
+
+    return await asyncio.to_thread(_draw_live_match_sync, lobby_data, splash_img)

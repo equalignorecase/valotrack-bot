@@ -1,6 +1,6 @@
 import logging
 from typing import Any
-import httpx
+from services.http_client import get_http_client
 from services.valorant_api import get_client_version
 
 logger = logging.getLogger(__name__)
@@ -35,12 +35,12 @@ async def get_storefront(
         "X-Riot-ClientVersion": client_version,
     }
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            response = await client.post(url, headers=headers, json={})
-            if response.status_code == 200:
-                return response.json()
-            logger.error("Storefront request failed. Status: %s - %s", response.status_code, response.text)
-        except Exception as e:
-            logger.exception("Error in get_storefront: %s", e)
+    client = get_http_client()
+    try:
+        response = await client.post(url, headers=headers, json={})
+        if response.status_code == 200:
+            return response.json()
+        logger.error("Storefront request failed. Status: %s - %s", response.status_code, response.text)
+    except Exception as e:
+        logger.exception("Error in get_storefront: %s", e)
     return None

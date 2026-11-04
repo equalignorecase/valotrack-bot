@@ -1,7 +1,7 @@
 import logging
 import time
 from typing import Any
-import httpx
+from services.http_client import get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -20,21 +20,21 @@ async def _fetch_version_data() -> dict[str, str]:
         return _VERSION_DATA
 
     url = "https://valorant-api.com/v1/version"
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            response = await client.get(url)
-            if response.status_code == 200:
-                data = response.json().get("data", {})
-                if data:
-                    _VERSION_DATA = {
-                        "riotClientVersion": data.get("riotClientVersion", ""),
-                        "riotClientBuild": data.get("riotClientBuild", ""),
-                    }
-                    _VERSION_EXPIRES = now + 900.0
-                    return _VERSION_DATA
-            logger.error("Failed to fetch client version. Status: %s", response.status_code)
-        except Exception as e:
-            logger.exception("Error in _fetch_version_data: %s", e)
+    client = get_http_client()
+    try:
+        response = await client.get(url)
+        if response.status_code == 200:
+            data = response.json().get("data", {})
+            if data:
+                _VERSION_DATA = {
+                    "riotClientVersion": data.get("riotClientVersion", ""),
+                    "riotClientBuild": data.get("riotClientBuild", ""),
+                }
+                _VERSION_EXPIRES = now + 900.0
+                return _VERSION_DATA
+        logger.error("Failed to fetch client version. Status: %s", response.status_code)
+    except Exception as e:
+        logger.exception("Error in _fetch_version_data: %s", e)
     return _VERSION_DATA
 
 
@@ -60,43 +60,43 @@ async def _init_skin_map():
     if _SKIN_MAP:
         return
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            # 1. Fetch content tiers (rarities & colors)
-            tier_resp = await client.get("https://valorant-api.com/v1/contenttiers")
-            tier_data = tier_resp.json().get("data", []) if tier_resp.status_code == 200 else []
-            tier_map = {}
-            for t in tier_data:
-                uuid = t.get("uuid")
-                raw_color = t.get("highlightColor") or "5A9FE233"
-                hex_color = "#" + raw_color[:6]
-                tier_map[uuid] = {
-                    "name": t.get("displayName", "Select Edition"),
-                    "color": hex_color,
-                    "icon": t.get("displayIcon"),
-                }
+    client = get_http_client()
+    try:
+        # 1. Fetch content tiers (rarities & colors)
+        tier_resp = await client.get("https://valorant-api.com/v1/contenttiers")
+        tier_data = tier_resp.json().get("data", []) if tier_resp.status_code == 200 else []
+        tier_map = {}
+        for t in tier_data:
+            uuid = t.get("uuid")
+            raw_color = t.get("highlightColor") or "5A9FE233"
+            hex_color = "#" + raw_color[:6]
+            tier_map[uuid] = {
+                "name": t.get("displayName", "Select Edition"),
+                "color": hex_color,
+                "icon": t.get("displayIcon"),
+            }
 
-            # 2. Fetch all weapon skins with levels
-            skins_resp = await client.get("https://valorant-api.com/v1/weapons/skins")
-            skins_data = skins_resp.json().get("data", []) if skins_resp.status_code == 200 else []
-            for s in skins_data:
-                tier_info = tier_map.get(
-                    s.get("contentTierUuid"),
-                    {"name": "Select Edition", "color": "#5A9FE2", "icon": None},
-                )
-                for lvl in s.get("levels", []):
-                    lvl_id = lvl.get("uuid")
-                    if lvl_id:
-                        _SKIN_MAP[lvl_id] = {
-                            "name": s.get("displayName", "Unknown Skin"),
-                            "icon": lvl.get("displayIcon") or s.get("displayIcon") or "",
-                            "tier_name": tier_info["name"],
-                            "tier_color": tier_info["color"],
-                            "tier_icon": tier_info["icon"],
-                        }
-            logger.info("Loaded %d weapon skins into memory cache", len(_SKIN_MAP))
-        except Exception as e:
-            logger.exception("Failed to load weapon skins map: %s", e)
+        # 2. Fetch all weapon skins with levels
+        skins_resp = await client.get("https://valorant-api.com/v1/weapons/skins")
+        skins_data = skins_resp.json().get("data", []) if skins_resp.status_code == 200 else []
+        for s in skins_data:
+            tier_info = tier_map.get(
+                s.get("contentTierUuid"),
+                {"name": "Select Edition", "color": "#5A9FE2", "icon": None},
+            )
+            for lvl in s.get("levels", []):
+                lvl_id = lvl.get("uuid")
+                if lvl_id:
+                    _SKIN_MAP[lvl_id] = {
+                        "name": s.get("displayName", "Unknown Skin"),
+                        "icon": lvl.get("displayIcon") or s.get("displayIcon") or "",
+                        "tier_name": tier_info["name"],
+                        "tier_color": tier_info["color"],
+                        "tier_icon": tier_info["icon"],
+                    }
+        logger.info("Loaded %d weapon skins into memory cache", len(_SKIN_MAP))
+    except Exception as e:
+        logger.exception("Failed to load weapon skins map: %s", e)
 
 
 async def get_weapon_info(skin_level_id: str) -> dict[str, Any]:
@@ -111,22 +111,22 @@ async def get_weapon_info(skin_level_id: str) -> dict[str, Any]:
 
     # Fallback to direct skinlevel endpoint if not in map
     url = f"https://valorant-api.com/v1/weapons/skinlevels/{skin_level_id}"
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            response = await client.get(url)
-            if response.status_code == 200:
-                data = response.json().get("data", {})
-                res = {
-                    "name": data.get("displayName", "Unknown Skin"),
-                    "icon": data.get("displayIcon", "") or "",
-                    "tier_name": "Select Edition",
-                    "tier_color": "#5A9FE2",
-                    "tier_icon": None,
-                }
-                _SKIN_MAP[skin_level_id] = res
-                return res
-        except Exception as e:
-            logger.exception("Error fetching weapon info for %s: %s", skin_level_id, e)
+    client = get_http_client()
+    try:
+        response = await client.get(url)
+        if response.status_code == 200:
+            data = response.json().get("data", {})
+            res = {
+                "name": data.get("displayName", "Unknown Skin"),
+                "icon": data.get("displayIcon", "") or "",
+                "tier_name": "Select Edition",
+                "tier_color": "#5A9FE2",
+                "tier_icon": None,
+            }
+            _SKIN_MAP[skin_level_id] = res
+            return res
+    except Exception as e:
+        logger.exception("Error fetching weapon info for %s: %s", skin_level_id, e)
 
     return {
         "name": "Unknown Skin",
@@ -148,23 +148,23 @@ async def _init_agent_map() -> None:
     if _AGENT_MAP:
         return
     url = "https://valorant-api.com/v1/agents?isPlayableCharacter=true"
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            resp = await client.get(url)
-            if resp.status_code == 200:
-                for agent in resp.json().get("data", []):
-                    uuid = agent.get("uuid", "").lower()
-                    if uuid:
-                        role = agent.get("role", {}) or {}
-                        _AGENT_MAP[uuid] = {
-                            "name": agent.get("displayName", "Agent"),
-                            "icon": agent.get("displayIcon", "") or "",
-                            "bust": agent.get("bustPortrait", "") or "",
-                            "role": role.get("displayName", ""),
-                        }
-                logger.info("Loaded %d agents into memory cache", len(_AGENT_MAP))
-        except Exception as e:
-            logger.exception("Failed to load agent map: %s", e)
+    client = get_http_client()
+    try:
+        resp = await client.get(url)
+        if resp.status_code == 200:
+            for agent in resp.json().get("data", []):
+                uuid = agent.get("uuid", "").lower()
+                if uuid:
+                    role = agent.get("role", {}) or {}
+                    _AGENT_MAP[uuid] = {
+                        "name": agent.get("displayName", "Agent"),
+                        "icon": agent.get("displayIcon", "") or "",
+                        "bust": agent.get("bustPortrait", "") or "",
+                        "role": role.get("displayName", ""),
+                    }
+            logger.info("Loaded %d agents into memory cache", len(_AGENT_MAP))
+    except Exception as e:
+        logger.exception("Failed to load agent map: %s", e)
 
 
 async def get_agent_info(agent_uuid: str | None) -> dict[str, Any]:
@@ -184,21 +184,21 @@ async def _init_map_map() -> None:
     if _MAP_MAP:
         return
     url = "https://valorant-api.com/v1/maps"
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            resp = await client.get(url)
-            if resp.status_code == 200:
-                for m in resp.json().get("data", []):
-                    name = m.get("displayName", "Unknown Map")
-                    map_url = (m.get("mapUrl") or "").lower()
-                    splash = m.get("splash") or ""
-                    info = {"name": name, "splash": splash}
-                    if map_url:
-                        _MAP_MAP[map_url] = info
-                    _MAP_MAP[name.lower()] = info
-                logger.info("Loaded %d maps into memory cache", len(_MAP_MAP))
-        except Exception as e:
-            logger.exception("Failed to load map map: %s", e)
+    client = get_http_client()
+    try:
+        resp = await client.get(url)
+        if resp.status_code == 200:
+            for m in resp.json().get("data", []):
+                name = m.get("displayName", "Unknown Map")
+                map_url = (m.get("mapUrl") or "").lower()
+                splash = m.get("splash") or ""
+                info = {"name": name, "splash": splash}
+                if map_url:
+                    _MAP_MAP[map_url] = info
+                _MAP_MAP[name.lower()] = info
+            logger.info("Loaded %d maps into memory cache", len(_MAP_MAP))
+    except Exception as e:
+        logger.exception("Failed to load map map: %s", e)
 
 
 async def get_map_info(map_path_or_name: str | None) -> dict[str, Any]:
@@ -224,25 +224,25 @@ async def _init_tier_map() -> None:
     if _TIER_MAP:
         return
     url = "https://valorant-api.com/v1/competitivetiers"
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            resp = await client.get(url)
-            if resp.status_code == 200:
-                data = resp.json().get("data", [])
-                if data:
-                    latest = data[-1].get("tiers", [])
-                    for t in latest:
-                        tier_id = t.get("tier", 0)
-                        raw_color = t.get("color") or "8a95a0ff"
-                        hex_color = "#" + raw_color[:6]
-                        _TIER_MAP[tier_id] = {
-                            "name": t.get("tierName", "Unrated"),
-                            "icon": t.get("largeIcon") or t.get("smallIcon") or "",
-                            "color": hex_color,
-                        }
-                logger.info("Loaded %d competitive tiers into memory cache", len(_TIER_MAP))
-        except Exception as e:
-            logger.exception("Failed to load competitive tier map: %s", e)
+    client = get_http_client()
+    try:
+        resp = await client.get(url)
+        if resp.status_code == 200:
+            data = resp.json().get("data", [])
+            if data:
+                latest = data[-1].get("tiers", [])
+                for t in latest:
+                    tier_id = t.get("tier", 0)
+                    raw_color = t.get("color") or "8a95a0ff"
+                    hex_color = "#" + raw_color[:6]
+                    _TIER_MAP[tier_id] = {
+                        "name": t.get("tierName", "Unrated"),
+                        "icon": t.get("largeIcon") or t.get("smallIcon") or "",
+                        "color": hex_color,
+                    }
+            logger.info("Loaded %d competitive tiers into memory cache", len(_TIER_MAP))
+    except Exception as e:
+        logger.exception("Failed to load competitive tier map: %s", e)
 
 
 async def get_tier_info(tier_id: int) -> dict[str, Any]:
@@ -253,4 +253,3 @@ async def get_tier_info(tier_id: int) -> dict[str, Any]:
         tier_id,
         {"name": "Unrated", "icon": "", "color": "#8a95a0"},
     )
-

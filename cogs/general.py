@@ -174,7 +174,7 @@ class GeneralCog(commands.Cog):
             title="🎯 ValoTracker — คู่มือการใช้งาน",
             description=(
                 "บอท Discord ครบวงจรสำหรับ Valorant: ตรวจสอบร้านค้าสกินประจำวัน, "
-                "ดูสถิติการแข่ง, แรงค์, Leaderboard และส่องห้องแข่งขันสด (Live Match)"
+                "ดูสถิติการแข่ง, แรงค์แก๊งเพื่อน, Leaderboard และส่องห้องแข่งขันสด (Live Match)"
             ),
             color=discord.Color.from_rgb(255, 70, 85),  # Valorant signature red
         )
@@ -183,7 +183,7 @@ class GeneralCog(commands.Cog):
             name="🚀 วิธีเริ่มต้นใช้งาน (Quick Start)",
             value=(
                 "1. พิมพ์คำสั่ง `/login` เพื่อสร้างลิงก์เข้าสู่ระบบ Riot ที่ปลอดภัย\n"
-                "2. คลิกปุ่มเพื่อล็อกอินผ่านหน้าเว็บทางการของ Riot Games\n"
+                "2. คลิกปุ่มเพื่อล็อกอินผ่านหน้าเว็บทางการของ Riot Games (ติ๊ก **Stay signed in**)\n"
                 "3. คัดลอก URL หน้าเว็บที่ขึ้น Error (`http://localhost/redirect?code=...`)\n"
                 "4. กดปุ่ม **ขั้นตอนที่ 2: กรอก Redirect URL** แล้ววาง URL ที่คัดลอกมา\n"
                 "5. พิมพ์คำสั่ง `/shop` เพื่อดูสกินประจำวันของคุณได้ทันที!"
@@ -218,13 +218,23 @@ class GeneralCog(commands.Cog):
         )
 
         embed.add_field(
+            name="👥 ระบบเช็กแรงค์แก๊งเพื่อน (Friend Leaderboard)",
+            value=(
+                "• **`/checkrank`** — ดูตารางจัดอันดับแรงค์ของเพื่อนๆ ในเซิร์ฟเวอร์ (หน้าละ 5 คน พร้อมปุ่มอัปเดตสด)\n"
+                "• **`/addfriend <player>`** — เพิ่มชื่อเพื่อน (`Name#Tag`) เข้าสู่ตาราง `/checkrank`\n"
+                "• **`/removefriend <player>`** — ลบรายชื่อเพื่อนออกจากตาราง `/checkrank`"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
             name="🔐 จัดการบัญชี & ระบบ (Accounts & System)",
             value=(
                 "• **`/login [name]`** — เชื่อมต่อบัญชี Riot (ตั้งชื่อเล่นไอดีได้)\n"
-                "• **`/view-accounts`** — ดูรายชื่อบัญชี Riot ทั้งหมดที่ผูกไว้\n"
+                "• **`/view-accounts`** — ดูรายชื่อบัญชี Riot ที่ผูกไว้พร้อมสถานะ Token (`🟢 พร้อมใช้` / `🔴 ต้อง /login ใหม่`)\n"
                 "• **`/select-account <id>`** — สลับบัญชีหลักสำหรับดูร้านค้า\n"
                 "• **`/delete-account <id>`** — ลบบัญชีและล้าง Token ออกจากระบบ\n"
-                "• **`/account-list`** — [Owner Only] ดูรายชื่อบัญชีทั้งหมดในระบบ DB\n"
+                "• **`/account-list`** — [Owner Only] ดูแดชบอร์ดบัญชีทั้งหมดในระบบ DB\n"
                 "• **`/status`** — ดูสถานะเครื่องโฮสต์ (CPU %, RAM, Disk, Ping, Uptime)\n"
                 "• **`/help`** — แสดงคู่มือการใช้งานและรายการคำสั่งทั้งหมด"
             ),

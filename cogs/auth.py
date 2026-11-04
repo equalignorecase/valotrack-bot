@@ -31,6 +31,15 @@ from services.riot_auth import (
 logger = logging.getLogger(__name__)
 
 
+def has_valid_refresh_token(acc: UserAccount) -> bool:
+    """Checks whether the account currently holds a non-empty encrypted refresh token."""
+    try:
+        r_token = decrypt_token(acc.encrypted_token, acc.nonce, acc.tag)
+        return bool(r_token and r_token.strip())
+    except Exception:
+        return False
+
+
 def extract_auth_code(redirect_url: str) -> str | None:
     """Extracts the 'code' parameter from the Riot OAuth2 redirect URL or raw code string."""
     cleaned = redirect_url.strip().strip("\"'<>")
@@ -329,7 +338,7 @@ class AuthCog(commands.Cog):
 
     @app_commands.command(
         name="view-accounts",
-        description="ดูรายการบัญชี Riot ทั้งหมดที่เชื่อมโยงกับ Discord ของคุณ",
+        description="ดูรายการบัญชี Riot ทั้งหมดที่เชื่อมโยงกับ Discord ของคุณ พร้อมสถานะเซสชัน",
     )
     async def view_accounts(self, interaction: discord.Interaction):
         try:
@@ -346,10 +355,14 @@ class AuthCog(commands.Cog):
             else:
                 lines = []
                 for idx, acc in enumerate(accounts, start=1):
-                    selected_badge = "   (**เลือกใช้งานอยู่**)" if acc.selected else ""
+                    is_alive = has_valid_refresh_token(acc)
+                    status_badge = "🟢 พร้อมใช้" if is_alive else "🔴 ต้อง `/login` ใหม่"
+                    selected_badge = " • ⭐ **เลือกใช้งานอยู่**" if acc.selected else ""
                     name = acc.name or "ไม่มีชื่อ"
-                    lines.append(f"`{idx:2}` •   **{name}** •   `{acc.shard}`{selected_badge}")
-                embed.add_field(name="รายการบัญชี", value="\n".join(lines), inline=False)
+                    lines.append(
+                        f"`{idx:2}` • **{name}** (`{acc.shard.upper()}`) — {status_badge}{selected_badge}"
+                    )
+                embed.add_field(name="รายการบัญชีและสถานะ Token", value="\n".join(lines), inline=False)
             embed.set_footer(text="Powered by localhostvlr")
 
             await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -449,22 +462,27 @@ class AuthCog(commands.Cog):
                 )
                 return
 
-            # Render High-Resolution Graphic Dashboard with Pillow (Auto-fit height)
-            buf = render_accounts_dashboard(accounts)
+            # Render High-Resolution Graphic Dashboard with Pillow in a background thread
+            buf = await asyncio.to_thread(render_accounts_dashboard, accounts)
             file = discord.File(fp=buf, filename="accounts_dashboard.png")
 
             now_utc = datetime.now(timezone.utc)
-            valid_cnt = sum(1 for a in accounts if a.token_expires > now_utc)
+            alive_flags = [has_valid_refresh_token(a) for a in accounts]
+            valid_cnt = sum(1 for alive in alive_flags if alive)
             expired_cnt = len(accounts) - valid_cnt
 
             owner_mentions = []
-            for a in accounts:
-                is_expired = a.token_expires <= now_utc
-                dot = "🔴" if is_expired else "🟢"
+            for a, is_alive in zip(accounts, alive_flags):
+                dot = "🟢" if is_alive else "🔴"
                 active_str = "🟢 Active" if a.selected else "⚪ Inactive"
                 riot_name = a.name if a.name else f"{a.puuid[:8]}..."
-                exp_ts = int(a.token_expires.timestamp())
-                exp_text = f"หมดอายุ <t:{exp_ts}:R>" if is_expired else f"ใช้ได้ถึง <t:{exp_ts}:R>"
+                if not is_alive:
+                    exp_text = "เซสชันหมดอายุ (ต้อง `/login` ใหม่)"
+                elif a.token_expires > now_utc:
+                    exp_ts = int(a.token_expires.timestamp())
+                    exp_text = f"พร้อมใช้ (รีเฟรชรอบถัดไป <t:{exp_ts}:R>)"
+                else:
+                    exp_text = "พร้อมใช้ (รอรีเฟรชอัตโนมัติ)"
                 owner_mentions.append(
                     f"• `#{a.id}` **{riot_name}** (`{a.shard.upper()}`) → <@{a.discord_user_id}> ({active_str} • {dot} {exp_text})"
                 )
@@ -475,7 +493,7 @@ class AuthCog(commands.Cog):
                 title="📋 แดชบอร์ดรายชื่อบัญชี Riot ในระบบ (ValoTracker.db)",
                 description=(
                     f"👑 **ผู้ดูแลระบบ:** <@{allowed_id}>\n"
-                    f"📊 **สถิติรวม:** 🟢 พร้อมใช้: `{valid_cnt}` • 🔴 หมดอายุ: `{expired_cnt}` • ทั้งหมด: `{len(accounts)}` ไอดี\n\n"
+                    f"📊 **สถิติรวม:** 🟢 พร้อมใช้: `{valid_cnt}` • 🔴 ต้อง `/login` ใหม่: `{expired_cnt}` • ทั้งหมด: `{len(accounts)}` ไอดี\n\n"
                     f"👥 **แท็กโปรไฟล์เจ้าของบัญชี (Discord):**\n"
                     f"{mentions_text}"
                 ),

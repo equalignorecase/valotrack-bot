@@ -3,8 +3,9 @@ import io
 import logging
 import os
 from typing import Any
-import httpx
 from PIL import Image, ImageDraw, ImageFont
+
+from services.http_client import get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -65,22 +66,26 @@ def get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
+def _decode_rgba_image(raw_bytes: bytes) -> Image.Image:
+    return Image.open(io.BytesIO(raw_bytes)).convert("RGBA")
+
+
 async def fetch_image(url: str) -> Image.Image | None:
-    """Fetches an image with caching."""
+    """Fetches an image with caching using the shared HTTP client."""
     if not url:
         return None
     if url in _IMAGE_CACHE:
         return _IMAGE_CACHE[url]
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            resp = await client.get(url)
-            if resp.status_code == 200:
-                img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
-                _IMAGE_CACHE[url] = img
-                return img
-        except Exception as e:
-            logger.debug("Failed to fetch image %s: %s", url, e)
+    client = get_http_client()
+    try:
+        resp = await client.get(url)
+        if resp.status_code == 200:
+            img = await asyncio.to_thread(_decode_rgba_image, resp.content)
+            _IMAGE_CACHE[url] = img
+            return img
+    except Exception as e:
+        logger.debug("Failed to fetch image %s: %s", url, e)
     return None
 
 
@@ -98,15 +103,13 @@ def truncate_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeType
     return text
 
 
-async def render_daily_shop(
+def _draw_daily_shop_sync(
     skins: list[dict[str, Any]],
-    player_name: str = "Valorant Player",
-    shard: str = "AP",
+    artwork_images: list[Image.Image | None],
+    tier_images: list[Image.Image | None],
+    player_name: str,
+    shard: str,
 ) -> io.BytesIO:
-    """
-    Renders a 1x4 horizontal panorama card displaying the daily rotating shop skins.
-    Returns: BytesIO buffer of the rendered PNG image.
-    """
     canvas_w = 1600
     canvas_h = 620
 
@@ -144,12 +147,6 @@ async def render_daily_shop(
         width=1,
     )
     draw.text((pill_left_x + 20, 35), info_text, font=font_header_info, fill=(180, 192, 204, 255))
-
-    # Concurrently fetch weapon artwork images
-    fetch_tasks = [fetch_image(s.get("icon", "")) for s in skins]
-    tier_icon_tasks = [fetch_image(s.get("tier_icon", "")) for s in skins]
-    artwork_images = await asyncio.gather(*fetch_tasks)
-    tier_images = await asyncio.gather(*tier_icon_tasks)
 
     # 4 Cards Layout Geometry (1x4 Horizontal)
     card_w = 362
@@ -268,3 +265,30 @@ async def render_daily_shop(
     canvas.convert("RGB").save(buffer, format="PNG", optimize=True)
     buffer.seek(0)
     return buffer
+
+
+async def render_daily_shop(
+    skins: list[dict[str, Any]],
+    player_name: str = "Valorant Player",
+    shard: str = "AP",
+) -> io.BytesIO:
+    """
+    Renders a 1x4 horizontal panorama card displaying the daily rotating shop skins.
+    Offloads CPU-bound Pillow drawing to a background thread.
+    Returns: BytesIO buffer of the rendered PNG image.
+    """
+    fetch_tasks = [fetch_image(s.get("icon", "")) for s in skins]
+    tier_icon_tasks = [fetch_image(s.get("tier_icon", "")) for s in skins]
+    artwork_images, tier_images = await asyncio.gather(
+        asyncio.gather(*fetch_tasks),
+        asyncio.gather(*tier_icon_tasks),
+    )
+
+    return await asyncio.to_thread(
+        _draw_daily_shop_sync,
+        skins,
+        list(artwork_images),
+        list(tier_images),
+        player_name,
+        shard,
+    )
