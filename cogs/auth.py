@@ -15,18 +15,17 @@ from database.db import (
     get_users_by_discord_id,
     save_or_update_user,
     set_selected_account,
-    update_account_shard,
-    update_account_tokens,
 )
 from database.models import UserAccount
 from services.account_renderer import render_accounts_dashboard
 from services.crypto import decrypt_token, encrypt_token
 from services.riot_auth import (
+    decode_jwt_exp,
     generate_login_url,
     get_player_affinity,
     get_player_info,
     get_tokens,
-    refresh_tokens,
+    refresh_account_session,
 )
 
 logger = logging.getLogger(__name__)
@@ -136,7 +135,9 @@ class LoginModal(discord.ui.Modal, title="กรอก Redirect URL จาก Ri
             # Encrypt the refresh token using AES-256-GCM
             ct, nonce, tag = encrypt_token(refresh_token)
 
-            token_expires = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+            token_expires = decode_jwt_exp(access_token) or (
+                datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+            )
             discord_user_id = interaction.user.id
 
             existing_user = await get_user_by_puuid_and_discord_id(discord_user_id, puuid)
@@ -225,13 +226,33 @@ class AuthCog(commands.Cog):
 
             success_count = 0
             failed_count = 0
+            skipped_expired_count = 0
+            seen_puuids: set[str] = set()
 
             for account in accounts:
+                if account.puuid in seen_puuids:
+                    continue
+                seen_puuids.add(account.puuid)
+
                 try:
                     r_token = decrypt_token(account.encrypted_token, account.nonce, account.tag)
-                    token_data = await refresh_tokens(r_token)
+                    if not r_token or not r_token.strip():
+                        skipped_expired_count += 1
+                        continue
 
-                    if not token_data or "access_token" not in token_data:
+                    now_utc = datetime.now(timezone.utc)
+                    # Skip unnecessary token rotation if token was refreshed/logged in very recently
+                    if account.access_token and account.token_expires > (now_utc + timedelta(minutes=45)):
+                        success_count += 1
+                        logger.info(
+                            "[Auto-Refresh Task] Account ID %s (%s) already has a fresh token; skipping rotation.",
+                            account.id,
+                            account.name,
+                        )
+                        continue
+
+                    refreshed = await refresh_account_session(account, force=True)
+                    if not refreshed:
                         logger.warning(
                             "[Auto-Refresh Task] Failed to refresh token for Account ID %s (%s, Discord: %s)",
                             account.id,
@@ -240,29 +261,6 @@ class AuthCog(commands.Cog):
                         )
                         failed_count += 1
                         continue
-
-                    new_access_token = token_data["access_token"]
-                    new_refresh_token = token_data.get("refresh_token", r_token)
-                    expires_in = token_data.get("expires_in", 3600)
-
-                    new_ct, new_nonce, new_tag = encrypt_token(new_refresh_token)
-                    now_utc = datetime.now(timezone.utc)
-                    new_expires = now_utc + timedelta(seconds=expires_in)
-
-                    await update_account_tokens(
-                        user_id=account.id,
-                        access_token=new_access_token,
-                        token_expires=new_expires,
-                        encrypted_token=new_ct,
-                        nonce=new_nonce,
-                        tag=new_tag,
-                    )
-
-                    id_token = token_data.get("id_token")
-                    if id_token:
-                        live_shard = await get_player_affinity(new_access_token, id_token)
-                        if live_shard and live_shard != account.shard:
-                            await update_account_shard(account.id, live_shard)
 
                     success_count += 1
                     logger.info(
@@ -283,10 +281,11 @@ class AuthCog(commands.Cog):
                 await asyncio.sleep(2)
 
             logger.info(
-                "[Auto-Refresh Task] Completed: %d succeeded, %d failed out of %d accounts.",
+                "[Auto-Refresh Task] Completed: %d succeeded, %d failed, %d skipped (awaiting re-login) out of %d unique accounts.",
                 success_count,
                 failed_count,
-                len(accounts),
+                skipped_expired_count,
+                len(seen_puuids),
             )
         except Exception as e:
             logger.exception("[Auto-Refresh Task] Unexpected error in task loop: %s", e)
@@ -497,5 +496,3 @@ class AuthCog(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(AuthCog(bot))
-
-

@@ -29,6 +29,7 @@ class LiveCog(commands.Cog):
 
         try:
             account = None
+            target_discord_id = interaction.user.id
 
             # 1. If player name is specified, check if it's a registered account in our DB
             if player:
@@ -36,9 +37,12 @@ class LiveCog(commands.Cog):
                 if db_acc:
                     # Try to use that account's session
                     account = await get_valid_account(db_acc.discord_user_id)
+                    if account:
+                        target_discord_id = db_acc.discord_user_id
 
             # 2. Otherwise use the caller's currently selected account
             if not account:
+                target_discord_id = interaction.user.id
                 account = await get_valid_account(interaction.user.id)
 
             if not account:
@@ -48,9 +52,14 @@ class LiveCog(commands.Cog):
                 )
                 return
 
-            # 3. Get entitlement
+            # 3. Get entitlement (retry once with forced token refresh if cached token was rejected)
             entitlement = await get_entitlement(account.access_token)
             if not entitlement:
+                account = await get_valid_account(target_discord_id, force_refresh=True)
+                if account:
+                    entitlement = await get_entitlement(account.access_token)
+
+            if not account or not entitlement:
                 await interaction.followup.send(
                     f"{interaction.user.mention} ขอสิทธิ์เข้าถึง (Entitlement) ไม่สำเร็จ เซสชัน Riot อาจหมดอายุ กรุณาล็อกอินใหม่ด้วย `/login`",
                 )

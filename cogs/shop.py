@@ -1,91 +1,35 @@
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from database.db import get_selected_user, update_account_shard, update_account_tokens
+from database.db import get_selected_user
 from database.models import UserAccount
-from services.crypto import decrypt_token, encrypt_token
-from services.riot_auth import get_entitlement, get_player_affinity, refresh_tokens
+from services.riot_auth import get_entitlement, refresh_account_session
 from services.riot_store import get_storefront
 from services.shop_renderer import render_daily_shop
 from services.valorant_api import get_weapon_info
 
 logger = logging.getLogger(__name__)
 
-# Mutex locks per user to prevent concurrent duplicate refresh requests
-_user_refresh_locks: dict[int, asyncio.Lock] = {}
 
-
-def _get_user_lock(user_id: int) -> asyncio.Lock:
-    if user_id not in _user_refresh_locks:
-        _user_refresh_locks[user_id] = asyncio.Lock()
-    return _user_refresh_locks[user_id]
-
-
-async def get_valid_account(discord_user_id: int) -> UserAccount | None:
+async def get_valid_account(discord_user_id: int, force_refresh: bool = False) -> UserAccount | None:
     """
-    Retrieves the user's selected account, refreshing the access token if needed.
-    Uses an asyncio mutex lock to prevent concurrent refresh token collisions.
+    Retrieves the user's selected account and ensures a valid Riot access token.
+    Delegates to refresh_account_session() which serializes refreshes per-PUUID.
     """
-    lock = _get_user_lock(discord_user_id)
-    async with lock:
-        account = await get_selected_user(discord_user_id)
-        if not account:
-            return None
-
-        # Check if token is still valid (with 1-minute safety window)
-        now_utc = datetime.now(timezone.utc)
-        if account.token_expires > (now_utc + timedelta(minutes=1)):
-            return account
-
-    # Token is expired or expiring soon, refresh it
-    try:
-        r_token = decrypt_token(account.encrypted_token, account.nonce, account.tag)
-        token_data = await refresh_tokens(r_token)
-
-        if not token_data or "access_token" not in token_data:
-            logger.error("Failed to refresh token with Riot API for user %s", discord_user_id)
-            return None
-
-        new_access_token = token_data["access_token"]
-        new_refresh_token = token_data.get("refresh_token", r_token)
-        expires_in = token_data.get("expires_in", 3600)
-
-        new_ct, new_nonce, new_tag = encrypt_token(new_refresh_token)
-        new_expires = now_utc + timedelta(seconds=expires_in)
-
-        await update_account_tokens(
-            user_id=account.id,
-            access_token=new_access_token,
-            token_expires=new_expires,
-            encrypted_token=new_ct,
-            nonce=new_nonce,
-            tag=new_tag,
-        )
-
-        account.access_token = new_access_token
-        account.token_expires = new_expires
-        account.encrypted_token = new_ct
-        account.nonce = new_nonce
-        account.tag = new_tag
-
-        # Check and update real live shard if id_token is returned
-        id_token = token_data.get("id_token")
-        if id_token:
-            live_shard = await get_player_affinity(new_access_token, id_token)
-            if live_shard and live_shard != account.shard:
-                await update_account_shard(account.id, live_shard)
-                account.shard = live_shard
-
-        logger.info("Successfully refreshed token for user account ID %s (Shard: %s)", account.id, account.shard)
-        return account
-    except Exception as e:
-        logger.exception("Error in get_valid_account while refreshing token: %s", e)
+    account = await get_selected_user(discord_user_id)
+    if not account:
         return None
+
+    refreshed = await refresh_account_session(account, force=force_refresh)
+    if not refreshed:
+        logger.error("Failed to refresh token with Riot API for user %s", discord_user_id)
+        return None
+    return refreshed
 
 
 class ShopCog(commands.Cog):
@@ -101,12 +45,19 @@ class ShopCog(commands.Cog):
             account = await get_valid_account(interaction.user.id)
             if not account:
                 await interaction.followup.send(
-                    f"{interaction.user.mention} ไม่พบบัญชีที่กำลังเลือกใช้งาน กรุณาเข้าสู่ระบบด้วยคำสั่ง `/login` ก่อน หรือตรวจสอบที่ `/view-accounts`",
+                    f"{interaction.user.mention} ไม่พบบัญชีที่กำลังเลือกใช้งาน หรือเซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ด้วยคำสั่ง `/login` หรือตรวจสอบที่ `/view-accounts`",
                 )
                 return
 
+            retried = False
             entitlement = await get_entitlement(account.access_token)
             if not entitlement:
+                retried = True
+                account = await get_valid_account(interaction.user.id, force_refresh=True)
+                if account:
+                    entitlement = await get_entitlement(account.access_token)
+
+            if not account or not entitlement:
                 await interaction.followup.send(
                     f"{interaction.user.mention} ขอสิทธิ์เข้าถึง (Entitlement) ไม่สำเร็จ เซสชัน Riot อาจหมดอายุ กรุณาล็อกอินใหม่ด้วย `/login`",
                 )
@@ -118,6 +69,18 @@ class ShopCog(commands.Cog):
                 entitlement=entitlement,
                 access_token=account.access_token,
             )
+
+            if (not storefront or "SkinsPanelLayout" not in storefront) and not retried:
+                account = await get_valid_account(interaction.user.id, force_refresh=True)
+                if account:
+                    entitlement = await get_entitlement(account.access_token)
+                    if entitlement:
+                        storefront = await get_storefront(
+                            shard=account.shard,
+                            puuid=account.puuid,
+                            entitlement=entitlement,
+                            access_token=account.access_token,
+                        )
 
             if not storefront or "SkinsPanelLayout" not in storefront:
                 await interaction.followup.send(

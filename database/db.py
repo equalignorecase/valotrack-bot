@@ -57,6 +57,16 @@ async def get_user_by_puuid_and_discord_id(discord_user_id: int, puuid: str) -> 
             return UserAccount.from_row(row) if row else None
 
 
+async def get_account_by_id(account_id: int) -> UserAccount | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT * FROM Users WHERE Id = ? LIMIT 1",
+            (account_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return UserAccount.from_row(row) if row else None
+
+
 async def get_selected_user(discord_user_id: int) -> UserAccount | None:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
@@ -156,6 +166,33 @@ async def save_or_update_user(user: UserAccount) -> UserAccount:
             )
             user.id = cursor.lastrowid
 
+        # Sync credentials across any other rows sharing the same Riot PUUID
+        # so a superseded refresh token is never replayed from a duplicate link.
+        await db.execute(
+            """
+            UPDATE Users SET
+                EncryptedToken = ?,
+                Nonce = ?,
+                Tag = ?,
+                Shard = ?,
+                AccessToken = ?,
+                TokenExpires = ?,
+                UpdatedAt = ?
+            WHERE Puuid = ? AND Id != ?
+            """,
+            (
+                user.encrypted_token,
+                user.nonce,
+                user.tag,
+                user.shard,
+                user.access_token,
+                expires_iso,
+                now_iso,
+                user.puuid,
+                user.id,
+            ),
+        )
+
         await db.commit()
     return user
 
@@ -167,32 +204,63 @@ async def update_account_tokens(
     encrypted_token: bytes,
     nonce: bytes,
     tag: bytes,
+    puuid: str | None = None,
 ) -> None:
     now_iso = datetime.now(timezone.utc).isoformat()
     expires_iso = token_expires.isoformat()
 
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """
-            UPDATE Users SET
-                AccessToken = ?,
-                TokenExpires = ?,
-                EncryptedToken = ?,
-                Nonce = ?,
-                Tag = ?,
-                UpdatedAt = ?
-            WHERE Id = ?
-            """,
-            (
-                access_token,
-                expires_iso,
-                encrypted_token,
-                nonce,
-                tag,
-                now_iso,
-                user_id,
-            ),
-        )
+        if not puuid:
+            async with db.execute("SELECT Puuid FROM Users WHERE Id = ? LIMIT 1", (user_id,)) as cur:
+                row = await cur.fetchone()
+                if row:
+                    puuid = row[0]
+
+        if puuid:
+            await db.execute(
+                """
+                UPDATE Users SET
+                    AccessToken = ?,
+                    TokenExpires = ?,
+                    EncryptedToken = ?,
+                    Nonce = ?,
+                    Tag = ?,
+                    UpdatedAt = ?
+                WHERE Puuid = ? OR Id = ?
+                """,
+                (
+                    access_token,
+                    expires_iso,
+                    encrypted_token,
+                    nonce,
+                    tag,
+                    now_iso,
+                    puuid,
+                    user_id,
+                ),
+            )
+        else:
+            await db.execute(
+                """
+                UPDATE Users SET
+                    AccessToken = ?,
+                    TokenExpires = ?,
+                    EncryptedToken = ?,
+                    Nonce = ?,
+                    Tag = ?,
+                    UpdatedAt = ?
+                WHERE Id = ?
+                """,
+                (
+                    access_token,
+                    expires_iso,
+                    encrypted_token,
+                    nonce,
+                    tag,
+                    now_iso,
+                    user_id,
+                ),
+            )
         await db.commit()
 
 

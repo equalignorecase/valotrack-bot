@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Any
 import httpx
 
@@ -7,22 +8,51 @@ logger = logging.getLogger(__name__)
 # In-memory cache for all weapon skins with content tiers
 _SKIN_MAP: dict[str, dict[str, Any]] = {}
 
+# 15-minute TTL cache for Riot client version & build
+_VERSION_DATA: dict[str, str] = {}
+_VERSION_EXPIRES: float = 0.0
 
-async def get_client_version() -> str:
-    """
-    Fetches the current Riot client version from valorant-api.com.
-    """
+
+async def _fetch_version_data() -> dict[str, str]:
+    global _VERSION_DATA, _VERSION_EXPIRES
+    now = time.monotonic()
+    if _VERSION_DATA and now < _VERSION_EXPIRES:
+        return _VERSION_DATA
+
     url = "https://valorant-api.com/v1/version"
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             response = await client.get(url)
             if response.status_code == 200:
-                data = response.json()
-                return data.get("data", {}).get("riotClientVersion", "")
+                data = response.json().get("data", {})
+                if data:
+                    _VERSION_DATA = {
+                        "riotClientVersion": data.get("riotClientVersion", ""),
+                        "riotClientBuild": data.get("riotClientBuild", ""),
+                    }
+                    _VERSION_EXPIRES = now + 900.0
+                    return _VERSION_DATA
             logger.error("Failed to fetch client version. Status: %s", response.status_code)
         except Exception as e:
-            logger.exception("Error in get_client_version: %s", e)
-    return ""
+            logger.exception("Error in _fetch_version_data: %s", e)
+    return _VERSION_DATA
+
+
+async def get_client_version() -> str:
+    """
+    Fetches the current Riot client version from valorant-api.com (cached 15m).
+    """
+    data = await _fetch_version_data()
+    return data.get("riotClientVersion", "")
+
+
+async def get_riot_user_agent() -> str:
+    """
+    Builds the expected RiotClient rso-auth User-Agent using the live riotClientBuild.
+    """
+    data = await _fetch_version_data()
+    build = data.get("riotClientBuild") or data.get("riotClientVersion") or "DEFAULT"
+    return f"RiotClient/{build} rso-auth (Windows;10;;Professional, x64)"
 
 
 async def _init_skin_map():
