@@ -8,8 +8,10 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 import config
+from cogs.shop import OWNER_DISCORD_ID, build_shop_embed_and_file
 from database.db import (
     delete_account,
+    get_account_by_id,
     get_all_users,
     get_user_by_puuid_and_discord_id,
     get_users_by_discord_id,
@@ -210,6 +212,63 @@ class LoginView(discord.ui.View):
 
     async def open_modal_btn(self, interaction: discord.Interaction):
         await interaction.response.send_modal(LoginModal(self.account_name))
+
+
+class AdminAccountShopView(discord.ui.View):
+    """Dropdown view attached to /account-list allowing Owner to inspect any account's Daily Shop ephemerally."""
+
+    def __init__(self, accounts: list[UserAccount], alive_flags: list[bool]):
+        super().__init__(timeout=300)
+
+        options: list[discord.SelectOption] = []
+        for acc, is_alive in list(zip(accounts, alive_flags))[:25]:
+            riot_name = acc.name if acc.name else f"{acc.puuid[:8]}..."
+            label = f"#{acc.id} • {riot_name} ({acc.shard.upper()})"[:100]
+            status_text = "พร้อมดูร้านค้า" if is_alive else "เซสชันหมดอายุ (ต้อง /login)"
+            desc = f"Discord ID: {acc.discord_user_id} • {status_text}"[:100]
+            options.append(
+                discord.SelectOption(
+                    label=label,
+                    value=str(acc.id),
+                    description=desc,
+                    emoji="🟢" if is_alive else "🔴",
+                )
+            )
+
+        select = discord.ui.Select(
+            placeholder="🛒 เลือกบัญชีจาก Database เพื่อส่องร้านค้ารายวัน (เห็นคนเดียว)...",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+        select.callback = self.select_callback
+        self.add_item(select)
+
+    async def select_callback(self, interaction: discord.Interaction):
+        if interaction.user.id != OWNER_DISCORD_ID:
+            await interaction.response.send_message(
+                f"❌ เฉพาะผู้ดูแลระบบ (`{OWNER_DISCORD_ID}`) เท่านั้นที่ใช้งานเมนูนี้ได้",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        selected_id = int(interaction.data["values"][0])
+        target_account = await get_account_by_id(selected_id)
+
+        if not target_account:
+            await interaction.followup.send("❌ ไม่พบบัญชีนี้ในฐานข้อมูลแล้ว", ephemeral=True)
+            return
+
+        embed, file, shop_err = await build_shop_embed_and_file(target_account, interaction.user.mention)
+        if shop_err or not embed or not file:
+            await interaction.followup.send(
+                shop_err or "❌ ไม่สามารถดึงข้อมูลร้านค้าของบัญชีนี้ได้",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.followup.send(embed=embed, file=file, ephemeral=True)
 
 
 class AuthCog(commands.Cog):
@@ -438,14 +497,13 @@ class AuthCog(commands.Cog):
 
     @app_commands.command(
         name="account-list",
-        description="[Admin Only] ดูรายชื่อบัญชี Riot ทั้งหมดที่บันทึกไว้ในฐานข้อมูล ValoTracker.db",
+        description="[Admin Only] ดูรายชื่อบัญชี Riot ทั้งหมดในฐานข้อมูล พร้อมเมนูเลือกส่องร้านค้าแต่ละไอดี",
     )
     async def account_list(self, interaction: discord.Interaction):
         # ล็อกสิทธิ์เฉพาะ User ID 578167102582685698 เท่านั้น
-        allowed_id = 578167102582685698
-        if interaction.user.id != allowed_id:
+        if interaction.user.id != OWNER_DISCORD_ID:
             await interaction.response.send_message(
-                f"❌ **คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้!** คำสั่งนี้สงวนสิทธิ์เฉพาะ User ID `{allowed_id}` เท่านั้น",
+                f"❌ **คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้!** คำสั่งนี้สงวนสิทธิ์เฉพาะ User ID `{OWNER_DISCORD_ID}` เท่านั้น",
                 ephemeral=True,
             )
             return
@@ -492,17 +550,19 @@ class AuthCog(commands.Cog):
             embed = discord.Embed(
                 title="📋 แดชบอร์ดรายชื่อบัญชี Riot ในระบบ (ValoTracker.db)",
                 description=(
-                    f"👑 **ผู้ดูแลระบบ:** <@{allowed_id}>\n"
+                    f"👑 **ผู้ดูแลระบบ:** <@{OWNER_DISCORD_ID}>\n"
                     f"📊 **สถิติรวม:** 🟢 พร้อมใช้: `{valid_cnt}` • 🔴 ต้อง `/login` ใหม่: `{expired_cnt}` • ทั้งหมด: `{len(accounts)}` ไอดี\n\n"
                     f"👥 **แท็กโปรไฟล์เจ้าของบัญชี (Discord):**\n"
-                    f"{mentions_text}"
+                    f"{mentions_text}\n\n"
+                    f"👇 *เลือกบัญชีจากเมนู Dropdown ด้านล่างเพื่อส่องร้านค้าประจำวันแบบส่วนตัว (`Ephemeral`)*"
                 ),
                 color=discord.Color.from_rgb(88, 101, 242),
             )
             embed.set_image(url="attachment://accounts_dashboard.png")
             embed.set_footer(text="ValoTracker.db • Admin Dashboard • Powered by localhostvlr")
 
-            await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+            view = AdminAccountShopView(accounts=accounts, alive_flags=alive_flags)
+            await interaction.followup.send(embed=embed, file=file, view=view, ephemeral=True)
 
         except Exception as e:
             logger.exception("Error in account_list: %s", e)
