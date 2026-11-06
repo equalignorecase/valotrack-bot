@@ -16,6 +16,7 @@ from database.db import (
     get_users_by_discord_id,
 )
 from database.models import UserAccount
+import config
 from services.crypto import decrypt_token
 from services.riot_auth import get_entitlement, refresh_account_session
 from services.riot_store import get_storefront
@@ -24,7 +25,13 @@ from services.valorant_api import get_weapon_info
 
 logger = logging.getLogger(__name__)
 
-OWNER_DISCORD_ID = 578167102582685698
+# Dynamic Bot Owner ID loaded from environment (.env BOT_OWNER_ID)
+OWNER_DISCORD_ID = config.BOT_OWNER_ID
+
+
+def is_bot_owner(user_id: int) -> bool:
+    """Returns True if the user_id matches the configured BOT_OWNER_ID in .env."""
+    return bool(config.BOT_OWNER_ID and user_id == config.BOT_OWNER_ID)
 
 # In-memory Daily Shop Cache: {(puuid, shard, player_name): {"cache_until": float, "reset_ts": int, "total_vp": int, "summary_text": str, "png_bytes": bytes}}
 _SHOP_CACHE: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -76,7 +83,7 @@ async def resolve_target_account(
         return acc, None
 
     q = account_query.strip()
-    is_owner = caller_discord_id == OWNER_DISCORD_ID
+    is_owner = is_bot_owner(caller_discord_id)
 
     if is_owner:
         # Try direct database ID lookup if numeric (or "#12")
@@ -338,7 +345,7 @@ class ShopCog(commands.Cog):
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
         try:
-            is_owner = interaction.user.id == OWNER_DISCORD_ID
+            is_owner = is_bot_owner(interaction.user.id)
             if is_owner:
                 accounts = await get_all_users()
             else:

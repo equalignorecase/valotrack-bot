@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 import config
-from cogs.shop import OWNER_DISCORD_ID, build_shop_embed_and_file
+from cogs.shop import is_bot_owner, build_shop_embed_and_file
 from database.db import (
     delete_account,
     get_account_by_id,
@@ -245,9 +245,9 @@ class AdminAccountShopView(discord.ui.View):
         self.add_item(select)
 
     async def select_callback(self, interaction: discord.Interaction):
-        if interaction.user.id != OWNER_DISCORD_ID:
+        if not is_bot_owner(interaction.user.id):
             await interaction.response.send_message(
-                f"❌ เฉพาะผู้ดูแลระบบ (`{OWNER_DISCORD_ID}`) เท่านั้นที่ใช้งานเมนูนี้ได้",
+                "❌ เฉพาะผู้ดูแลระบบ (Bot Owner) เท่านั้นที่ใช้งานเมนูนี้ได้",
                 ephemeral=True,
             )
             return
@@ -500,10 +500,10 @@ class AuthCog(commands.Cog):
         description="[Admin Only] ดูรายชื่อบัญชี Riot ทั้งหมดในฐานข้อมูล พร้อมเมนูเลือกส่องร้านค้าแต่ละไอดี",
     )
     async def account_list(self, interaction: discord.Interaction):
-        # ล็อกสิทธิ์เฉพาะ User ID 578167102582685698 เท่านั้น
-        if interaction.user.id != OWNER_DISCORD_ID:
+        # ล็อกสิทธิ์เฉพาะ Bot Owner ตามที่ตั้งค่าใน .env (BOT_OWNER_ID)
+        if not is_bot_owner(interaction.user.id):
             await interaction.response.send_message(
-                f"❌ **คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้!** คำสั่งนี้สงวนสิทธิ์เฉพาะ User ID `{OWNER_DISCORD_ID}` เท่านั้น",
+                "❌ **คุณไม่มีสิทธิ์ใช้งานคำสั่งนี้!** คำสั่งนี้สงวนสิทธิ์เฉพาะผู้ดูแลระบบ (Bot Owner) เท่านั้น",
                 ephemeral=True,
             )
             return
@@ -547,10 +547,11 @@ class AuthCog(commands.Cog):
 
             mentions_text = "\n".join(owner_mentions)
 
+            owner_display = f"<@{config.BOT_OWNER_ID}>" if config.BOT_OWNER_ID else "ไม่ได้ระบุ"
             embed = discord.Embed(
                 title="📋 แดชบอร์ดรายชื่อบัญชี Riot ในระบบ (ValoTracker.db)",
                 description=(
-                    f"👑 **ผู้ดูแลระบบ:** <@{OWNER_DISCORD_ID}>\n"
+                    f"👑 **ผู้ดูแลระบบ:** {owner_display}\n"
                     f"📊 **สถิติรวม:** 🟢 พร้อมใช้: `{valid_cnt}` • 🔴 ต้อง `/login` ใหม่: `{expired_cnt}` • ทั้งหมด: `{len(accounts)}` ไอดี\n\n"
                     f"👥 **แท็กโปรไฟล์เจ้าของบัญชี (Discord):**\n"
                     f"{mentions_text}\n\n"

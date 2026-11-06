@@ -4,7 +4,6 @@ from discord import app_commands
 from discord.ext import commands
 
 from cogs.shop import get_valid_account
-from database.db import get_user_by_name
 from services.live_renderer import render_live_match
 from services.riot_auth import get_entitlement
 from services.riot_live import get_live_match_raw, parse_live_lobby
@@ -28,22 +27,8 @@ class LiveCog(commands.Cog):
         await interaction.response.defer(ephemeral=False)
 
         try:
-            account = None
             target_discord_id = interaction.user.id
-
-            # 1. If player name is specified, check if it's a registered account in our DB
-            if player:
-                db_acc = await get_user_by_name(player)
-                if db_acc:
-                    # Try to use that account's session
-                    account = await get_valid_account(db_acc.discord_user_id)
-                    if account:
-                        target_discord_id = db_acc.discord_user_id
-
-            # 2. Otherwise use the caller's currently selected account
-            if not account:
-                target_discord_id = interaction.user.id
-                account = await get_valid_account(interaction.user.id)
+            account = await get_valid_account(target_discord_id)
 
             if not account:
                 await interaction.followup.send(

@@ -1,12 +1,18 @@
 import logging
 import time
 from typing import Any
+from urllib.parse import quote
 import config
 from services.http_client import get_http_client
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.henrikdev.xyz/valorant"
+
+
+def _q(val: Any) -> str:
+    """Safely URL-encodes user input parameters."""
+    return quote(str(val or "").strip(), safe="")
 
 # In-memory TTL Cache: {cache_key: (timestamp, data)}
 _CACHE: dict[str, tuple[float, Any]] = {}
@@ -42,7 +48,7 @@ async def get_account(name: str, tag: str) -> dict[str, Any] | None:
     if cached is not None:
         return cached
 
-    url = f"{BASE_URL}/v1/account/{name}/{tag}"
+    url = f"{BASE_URL}/v1/account/{_q(name)}/{_q(tag)}"
     client = get_http_client()
     try:
         resp = await client.get(url, headers=_get_headers())
@@ -65,7 +71,7 @@ async def get_account_by_puuid(puuid: str) -> dict[str, Any] | None:
     if cached is not None:
         return cached
 
-    url = f"{BASE_URL}/v1/by-puuid/account/{puuid}"
+    url = f"{BASE_URL}/v1/by-puuid/account/{_q(puuid)}"
     client = get_http_client()
     try:
         resp = await client.get(url, headers=_get_headers())
@@ -96,9 +102,9 @@ async def get_mmr(
             return cached
 
     if puuid:
-        url = f"{BASE_URL}/v2/by-puuid/mmr/{shard}/{puuid}"
+        url = f"{BASE_URL}/v2/by-puuid/mmr/{_q(shard)}/{_q(puuid)}"
     elif name and tag:
-        url = f"{BASE_URL}/v2/mmr/{shard}/{name}/{tag}"
+        url = f"{BASE_URL}/v2/mmr/{_q(shard)}/{_q(name)}/{_q(tag)}"
     else:
         return None
 
@@ -125,9 +131,9 @@ async def get_matches(shard: str, puuid: str | None = None, name: str | None = N
         return cached
 
     if puuid:
-        url = f"{BASE_URL}/v3/by-puuid/matches/{shard}/{puuid}?size={size}"
+        url = f"{BASE_URL}/v3/by-puuid/matches/{_q(shard)}/{_q(puuid)}?size={int(size)}"
     elif name and tag:
-        url = f"{BASE_URL}/v3/matches/{shard}/{name}/{tag}?size={size}"
+        url = f"{BASE_URL}/v3/matches/{_q(shard)}/{_q(name)}/{_q(tag)}?size={int(size)}"
     else:
         return []
 
@@ -164,9 +170,9 @@ async def get_stored_mmr_history(
         return cached
 
     if puuid:
-        url = f"{BASE_URL}/v1/by-puuid/stored-mmr-history/{shard}/{puuid}"
+        url = f"{BASE_URL}/v1/by-puuid/stored-mmr-history/{_q(shard)}/{_q(puuid)}"
     elif name and tag:
-        url = f"{BASE_URL}/v1/stored-mmr-history/{shard}/{name}/{tag}"
+        url = f"{BASE_URL}/v1/stored-mmr-history/{_q(shard)}/{_q(name)}/{_q(tag)}"
     else:
         return []
 
@@ -241,9 +247,9 @@ async def get_leaderboard(
             return data
 
     if name and tag:
-        url = f"{BASE_URL}/v3/leaderboard/{s}/pc?name={name}&tag={tag}"
+        url = f"{BASE_URL}/v3/leaderboard/{_q(s)}/pc?name={_q(name)}&tag={_q(tag)}"
     else:
-        url = f"{BASE_URL}/v3/leaderboard/{s}/pc?start_index=1&size=200"
+        url = f"{BASE_URL}/v3/leaderboard/{_q(s)}/pc?start_index=1&size=200"
 
     client = get_http_client()
     try:

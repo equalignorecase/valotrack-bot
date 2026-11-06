@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import aiosqlite
 from config import DB_PATH
 from database.models import TrackedFriend, UserAccount
+from services.crypto import encrypt_string
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,18 @@ async def init_db() -> None:
             );
             """
         )
+        # Migrate any legacy plaintext AccessTokens to encrypted format
+        try:
+            async with db.execute(
+                "SELECT Id, AccessToken FROM Users WHERE AccessToken IS NOT NULL AND AccessToken != '' AND AccessToken NOT LIKE 'enc:%'"
+            ) as cursor:
+                unencrypted = await cursor.fetchall()
+                for uid, raw_tok in unencrypted:
+                    enc = encrypt_string(raw_tok)
+                    await db.execute("UPDATE Users SET AccessToken = ? WHERE Id = ?", (enc, uid))
+        except Exception as e:
+            logger.warning("Could not migrate legacy tokens: %s", e)
+
         await db.commit()
     logger.info("Database initialized successfully at %s", DB_PATH)
 
@@ -94,6 +107,7 @@ async def save_or_update_user(user: UserAccount) -> UserAccount:
     """
     now_iso = datetime.now(timezone.utc).isoformat()
     expires_iso = user.token_expires.isoformat()
+    enc_access_token = encrypt_string(user.access_token) if user.access_token else ""
 
     async with aiosqlite.connect(DB_PATH) as db:
         # Check if existing
@@ -131,7 +145,7 @@ async def save_or_update_user(user: UserAccount) -> UserAccount:
                     user.tag,
                     user.shard,
                     user.name or "",
-                    user.access_token,
+                    enc_access_token,
                     expires_iso,
                     1 if user.selected else 0,
                     now_iso,
@@ -158,7 +172,7 @@ async def save_or_update_user(user: UserAccount) -> UserAccount:
                     user.shard,
                     user.name or "",
                     1 if user.selected else 0,
-                    user.access_token,
+                    enc_access_token,
                     expires_iso,
                     created_iso,
                     now_iso,
@@ -185,7 +199,7 @@ async def save_or_update_user(user: UserAccount) -> UserAccount:
                 user.nonce,
                 user.tag,
                 user.shard,
-                user.access_token,
+                enc_access_token,
                 expires_iso,
                 now_iso,
                 user.puuid,
@@ -208,6 +222,7 @@ async def update_account_tokens(
 ) -> None:
     now_iso = datetime.now(timezone.utc).isoformat()
     expires_iso = token_expires.isoformat()
+    enc_access_token = encrypt_string(access_token) if access_token else ""
 
     async with aiosqlite.connect(DB_PATH) as db:
         if not puuid:
@@ -229,7 +244,7 @@ async def update_account_tokens(
                 WHERE Puuid = ? OR Id = ?
                 """,
                 (
-                    access_token,
+                    enc_access_token,
                     expires_iso,
                     encrypted_token,
                     nonce,
@@ -252,7 +267,7 @@ async def update_account_tokens(
                 WHERE Id = ?
                 """,
                 (
-                    access_token,
+                    enc_access_token,
                     expires_iso,
                     encrypted_token,
                     nonce,

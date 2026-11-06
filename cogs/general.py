@@ -8,6 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 import psutil
+from cogs.shop import is_bot_owner
 
 logger = logging.getLogger(__name__)
 
@@ -68,24 +69,14 @@ class GeneralCog(commands.Cog):
 
     @app_commands.command(
         name="status",
-        description="ดูสถานะการทำงานของบอท ข้อมูลสเปกเครื่อง PC, CPU, RAM และ Disk Usage แบบเรียลไทม์",
+        description="ดูสถานะการทำงานของบอท, Uptime, Ping และทรัพยากรระบบ",
     )
     async def status_command(self, interaction: discord.Interaction):
-        # Measure CPU percent over a short 0.2s sample
-        cpu_pct = psutil.cpu_percent(interval=0.2)
-        logical_cores = psutil.cpu_count(logical=True) or 1
-        physical_cores = psutil.cpu_count(logical=False) or logical_cores
+        is_owner = is_bot_owner(interaction.user.id)
 
-        # RAM Usage
-        vm = psutil.virtual_memory()
-        ram_used_gb = vm.used / (1024**3)
-        ram_total_gb = vm.total / (1024**3)
-        ram_free_gb = vm.available / (1024**3)
-
-        # Disk Usage of current working directory
-        disk = psutil.disk_usage(os.getcwd())
-        disk_used_gb = disk.used / (1024**3)
-        disk_total_gb = disk.total / (1024**3)
+        # Bot Process RAM Usage
+        process = psutil.Process()
+        proc_mem_mb = process.memory_info().rss / (1024 * 1024)
 
         # Bot Uptime calculation
         start_time = getattr(self.bot, "start_time", datetime.now(timezone.utc))
@@ -95,60 +86,12 @@ class GeneralCog(commands.Cog):
 
         # Latency / Ping
         ping_ms = round(self.bot.latency * 1000)
-
-        # OS and Machine info
-        os_name = platform.system()
-        os_release = platform.release()
-        os_arch = platform.machine()
-        if os_name == "Darwin":
-            display_os = f"macOS {os_release} ({os_arch})"
-        elif os_name == "Windows":
-            display_os = f"Windows {platform.win32_edition() if hasattr(platform, 'win32_edition') else ''} {os_release} ({os_arch})"
-        else:
-            display_os = f"{os_name} {os_release} ({os_arch})"
-
         python_ver = platform.python_version()
         discord_ver = discord.__version__
 
         embed = discord.Embed(
-            title="🖥️ สถานะระบบและสเปกเครื่อง (System & Bot Status)",
+            title="🖥️ สถานะการทำงานของบอท (Bot Status)",
             color=discord.Color.from_rgb(0, 212, 255),  # Cyan / Tech Blue
-        )
-
-        embed.add_field(
-            name="⚡ การใช้งาน CPU (Processor)",
-            value=(
-                f"`[{make_progress_bar(cpu_pct)}]` **{cpu_pct:.1f}%**\n"
-                f"• คอร์ประมวลผล: `{logical_cores} Threads` (`{physical_cores} Cores`)"
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🧠 การใช้งาน RAM (Memory)",
-            value=(
-                f"`[{make_progress_bar(vm.percent)}]` **{vm.percent:.1f}%**\n"
-                f"• ใช้ไป: `{ram_used_gb:.2f} GB` / `{ram_total_gb:.2f} GB` (ว่าง `{ram_free_gb:.2f} GB`)"
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="💾 พื้นที่จัดเก็บ Disk (Storage)",
-            value=(
-                f"`[{make_progress_bar(disk.percent)}]` **{disk.percent:.1f}%**\n"
-                f"• ใช้ไป: `{disk_used_gb:.1f} GB` / `{disk_total_gb:.1f} GB`"
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="⚙️ ข้อมูลเครื่องและระบบปฏิบัติการ (Host & OS)",
-            value=(
-                f"• **ระบบปฏิบัติการ:** `{display_os}`\n"
-                f"• **Python:** `{python_ver}` • **Discord.py:** `{discord_ver}`"
-            ),
-            inline=False,
         )
 
         embed.add_field(
@@ -156,17 +99,54 @@ class GeneralCog(commands.Cog):
             value=(
                 f"• **ระยะเวลาทำงาน (Uptime):** `{uptime_str}` (<t:{uptime_timestamp}:R>)\n"
                 f"• **ความเร็วการตอบสนอง (Ping):** `{ping_ms} ms`\n"
+                f"• **หน่วยความจำที่บอทใช้ (RAM):** `{proc_mem_mb:.1f} MB`\n"
                 f"• **เซิร์ฟเวอร์ที่ให้บริการ:** `{len(self.bot.guilds):,} เซิร์ฟเวอร์`"
             ),
             inline=False,
         )
+
+        embed.add_field(
+            name="⚙️ สภาพแวดล้อม (Environment)",
+            value=(
+                f"• **Python:** `{python_ver}` • **Discord.py:** `{discord_ver}`"
+            ),
+            inline=False,
+        )
+
+        # Detailed host stats only displayed for Bot Owner to avoid information disclosure
+        if is_owner:
+            cpu_pct = psutil.cpu_percent(interval=0.2)
+            logical_cores = psutil.cpu_count(logical=True) or 1
+            physical_cores = psutil.cpu_count(logical=False) or logical_cores
+            vm = psutil.virtual_memory()
+            ram_used_gb = vm.used / (1024**3)
+            ram_total_gb = vm.total / (1024**3)
+            disk = psutil.disk_usage(os.getcwd())
+            disk_used_gb = disk.used / (1024**3)
+            disk_total_gb = disk.total / (1024**3)
+
+            os_name = platform.system()
+            os_release = platform.release()
+            os_arch = platform.machine()
+            display_os = f"{os_name} {os_release} ({os_arch})"
+
+            embed.add_field(
+                name="⚡ Host CPU & RAM (Admin View)",
+                value=(
+                    f"• CPU: `[{make_progress_bar(cpu_pct)}]` **{cpu_pct:.1f}%** ({logical_cores}T / {physical_cores}C)\n"
+                    f"• RAM: `[{make_progress_bar(vm.percent)}]` **{ram_used_gb:.2f} / {ram_total_gb:.2f} GB**\n"
+                    f"• Disk: `[{make_progress_bar(disk.percent)}]` **{disk_used_gb:.1f} / {disk_total_gb:.1f} GB**\n"
+                    f"• OS: `{display_os}`"
+                ),
+                inline=False,
+            )
 
         embed.set_footer(
             text="Powered by localhostvlr",
             icon_url="https://media.valorant-api.com/competitivetiers/03621f52-342b-cf4e-4f86-9350a49c6d04/27/largeicon.png",
         )
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="help", description="ดูคำสั่งและคู่มือการใช้งานบอท ValoTracker ทั้งหมด")
     async def help_command(self, interaction: discord.Interaction):

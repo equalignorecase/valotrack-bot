@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from services.crypto import decrypt_string
 
 
 def parse_datetime(val: str | datetime) -> datetime:
@@ -57,7 +58,7 @@ class UserAccount:
             shard=shard,
             name=name,
             selected=bool(selected),
-            access_token=access_token,
+            access_token=decrypt_string(access_token) if access_token else "",
             token_expires=parse_datetime(token_expires),
             created_at=parse_datetime(created_at),
             updated_at=parse_datetime(updated_at),
