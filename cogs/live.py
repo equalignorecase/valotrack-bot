@@ -61,17 +61,17 @@ class LiveCog(commands.Cog):
             if not raw_session:
                 desc = (
                     f"บัญชี **{account.name or 'ของคุณ'}** ไม่ได้อยู่ในห้องเลือกตัวละคร (Agent Select) หรือกำลังเล่นเกมอยู่ในขณะนี้\n\n"
-                    f"💡 **วิธีใช้งาน:** เข้าคิวแข่งขันใน Valorant เมื่อเริ่มเลือกตัวหรือเข้าเกมแล้ว กดพิมพ์ `/live` อีกครั้งเพื่อส่องห้องสดทันที!"
+                    f"**วิธีใช้งาน:** เข้าคิวแข่งขันใน Valorant แล้วใช้ `/live` อีกครั้งเมื่อเริ่มเลือกตัวหรือเข้าเกม"
                 )
                 if player:
                     desc += f"\n*(ระบบสแกนหา `{player}` ในห้องสดของ {account.name} แต่ปัจจุบันไม่ได้อยู่ในเกม)*"
 
                 embed_idle = discord.Embed(
-                    title="💤 ไม่พบการแข่งขันสดในขณะนี้",
+                    title="ไม่พบการแข่งขันสดในขณะนี้",
                     description=desc,
                     color=discord.Color.from_rgb(138, 149, 160),
                 )
-                embed_idle.set_footer(text="Powered by localhostvlr • Riot Games GLZ API")
+                embed_idle.set_footer(text="Powered by localhostvlr")
                 await interaction.followup.send(embed=embed_idle)
                 return
 
@@ -90,14 +90,14 @@ class LiveCog(commands.Cog):
             file = discord.File(fp=buf, filename="live_match.png")
 
             # 7. Construct Discord Embed message
-            state_thai = "🟡 หน้าเลือกตัวละคร (Agent Select)" if lobby["is_pregame"] else "🔴 กำลังแข่งขันในเกม (In-Match)"
+            state_thai = "หน้าเลือกตัวละคร (Agent Select)" if lobby["is_pregame"] else "กำลังแข่งขันในเกม (In-Match)"
             map_name = lobby["map_name"]
             mode_name = lobby["mode_name"]
             total_players = len(lobby["all_players"])
 
             desc_lines = [
                 f"**สถานะ:** `{state_thai}`",
-                f"🗺️ **แผนที่:** `{map_name}` • 🎯 **โหมด:** `{mode_name}` • 🌐 **เซิร์ฟเวอร์:** `{lobby['shard']}`",
+                f"**แผนที่:** `{map_name}` • **โหมด:** `{mode_name}` • **เซิร์ฟเวอร์:** `{lobby['shard']}`",
             ]
 
             if player:
@@ -107,23 +107,23 @@ class LiveCog(commands.Cog):
                 )
                 if target_p:
                     desc_lines.append(
-                        f"🎯 **โฟกัสผู้เล่น:** **{target_p['display']}** (เล่นเป็น `{target_p['agent_name']}` • {target_p['rank_name']})",
+                        f"**ผู้เล่นที่ค้นหา:** **{target_p['display']}** (เล่นเป็น `{target_p['agent_name']}` • {target_p['rank_name']})",
                     )
                 else:
                     desc_lines.append(
-                        f"ℹ️ *ไม่พบ `{player}` ในห้องนี้ (แสดงห้องของ {account.name or 'คุณ'} แทน)*",
+                        f"*ไม่พบ `{player}` ในห้องนี้ (แสดงห้องของ {account.name or 'คุณ'} แทน)*",
                     )
 
             if lobby["is_pregame"]:
-                desc_lines.append("\n🔒 *ทีมศัตรูจะถูกซ่อนไว้ในโหมดแข่งขันจนกว่าจะโหลดเข้าสู่แมตช์เต็มตัว*")
+                desc_lines.append("\n*ทีมศัตรูจะถูกซ่อนไว้ในโหมดแข่งขันจนกว่าจะโหลดเข้าสู่แมตช์เต็มตัว*")
 
             embed = discord.Embed(
-                title=f"🎮 ส่องห้องแข่งขันสด (Live Match): {map_name} ({mode_name})",
+                title=f"ส่องห้องแข่งขันสด (Live Match): {map_name} ({mode_name})",
                 description="\n".join(desc_lines),
                 color=discord.Color.from_rgb(255, 70, 85) if not lobby["is_pregame"] else discord.Color.gold(),
             )
             embed.set_image(url="attachment://live_match.png")
-            embed.set_footer(text=f"ตรวจพบผู้เล่น {total_players} คน • Powered by localhostvlr & Riot Games API")
+            embed.set_footer(text="Powered by localhostvlr")
 
             await interaction.followup.send(embed=embed, file=file)
 

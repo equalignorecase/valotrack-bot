@@ -370,27 +370,27 @@ class AuthCog(commands.Cog):
         login_url = generate_login_url()
 
         embed = discord.Embed(
-            title="🔐 เข้าสู่ระบบ Riot Games",
+            title="เข้าสู่ระบบ Riot Games",
             description=(
                 "เข้าสู่ระบบอย่างปลอดภัยผ่านหน้าต่างทางการของ Riot Games\n\n"
-                "💡 **ขั้นตอนสำคัญในการเข้าสู่ระบบ**:\n"
+                "**ขั้นตอนสำคัญในการเข้าสู่ระบบ**:\n"
                 "1. นำลิงก์ไปเปิดในเบราว์เซอร์ภายนอก (Chrome / Edge / Safari)\n"
-                "2. ⚠️ **ต้องติ๊กถูกช่อง 'จำฉันไว้ในระบบ' (Stay signed in)** ก่อนกดเข้าสู่ระบบเสมอ (เพื่อป้องกัน Token หมดอายุ)\n"
-                "3. ⚠️ **ห้ามกด 'ออกจากระบบ' (Sign Out)** บนหน้าเว็บ Riot หลังจากคัดลอก URL แล้ว เพราะจะทำให้ Token ถูกยกเลิกทันที"
+                "2. **ต้องติ๊กช่อง 'จำฉันไว้ในระบบ' (Stay signed in)** ก่อนเข้าสู่ระบบ เพื่อป้องกัน Token หมดอายุ\n"
+                "3. **ห้ามกด 'ออกจากระบบ' (Sign Out)** หลังคัดลอก URL เพราะจะทำให้ Token ถูกยกเลิก"
             ),
             color=discord.Color.red(),
         )
         embed.add_field(
-            name="1️⃣ คัดลอกลิงก์เปิดในเบราว์เซอร์ภายนอก",
+            name="ขั้นตอนที่ 1: คัดลอกลิงก์",
             value=f"```text\n{login_url}\n```\n*(หรือคลิกปุ่ม **ขั้นตอนที่ 1** ด้านล่างหากต้องการเปิดทันที)*",
             inline=False,
         )
         embed.add_field(
-            name="2️⃣ นำ Redirect URL มาใส่",
+            name="ขั้นตอนที่ 2: กรอก Redirect URL",
             value="เมื่อล็อกอินเสร็จ หน้าเว็บจะเปลี่ยนเป็น `http://localhost/redirect?code=...` (ขึ้นหน้า Error เป็นเรื่องปกติ) ให้คัดลอก URL ทั้งหมดด้านบน แล้วกดปุ่ม **ขั้นตอนที่ 2: กรอก Redirect URL**",
             inline=False,
         )
-        embed.set_footer(text="บอทจะไม่ทราบรหัสผ่านของคุณ • ปลอดภัยด้วยการเข้ารหัส AES-256-GCM")
+        embed.set_footer(text="Powered by localhostvlr")
 
         view = LoginView(login_url=login_url, account_name=name)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
@@ -404,7 +404,7 @@ class AuthCog(commands.Cog):
             accounts = await get_users_by_discord_id(interaction.user.id)
 
             embed = discord.Embed(
-                title="👤 บัญชี Riot ของคุณ",
+                title="บัญชี Riot ของคุณ",
                 description="ใช้หมายเลข **ID** ด้านหน้าสำหรับคำสั่ง `/select-account` หรือ `/delete-account`",
                 color=discord.Color.blue(),
             )
@@ -415,8 +415,8 @@ class AuthCog(commands.Cog):
                 lines = []
                 for idx, acc in enumerate(accounts, start=1):
                     is_alive = has_valid_refresh_token(acc)
-                    status_badge = "🟢 พร้อมใช้" if is_alive else "🔴 ต้อง `/login` ใหม่"
-                    selected_badge = " • ⭐ **เลือกใช้งานอยู่**" if acc.selected else ""
+                    status_badge = "พร้อมใช้" if is_alive else "ต้อง `/login` ใหม่"
+                    selected_badge = " • **เลือกใช้งานอยู่**" if acc.selected else ""
                     name = acc.name or "ไม่มีชื่อ"
                     lines.append(
                         f"`{idx:2}` • **{name}** (`{acc.shard.upper()}`) — {status_badge}{selected_badge}"
@@ -531,8 +531,7 @@ class AuthCog(commands.Cog):
 
             owner_mentions = []
             for a, is_alive in zip(accounts, alive_flags):
-                dot = "🟢" if is_alive else "🔴"
-                active_str = "🟢 Active" if a.selected else "⚪ Inactive"
+                active_str = "Active" if a.selected else "Inactive"
                 riot_name = a.name if a.name else f"{a.puuid[:8]}..."
                 if not is_alive:
                     exp_text = "เซสชันหมดอายุ (ต้อง `/login` ใหม่)"
@@ -542,25 +541,25 @@ class AuthCog(commands.Cog):
                 else:
                     exp_text = "พร้อมใช้ (รอรีเฟรชอัตโนมัติ)"
                 owner_mentions.append(
-                    f"• `#{a.id}` **{riot_name}** (`{a.shard.upper()}`) → <@{a.discord_user_id}> ({active_str} • {dot} {exp_text})"
+                    f"• `#{a.id}` **{riot_name}** (`{a.shard.upper()}`) → <@{a.discord_user_id}> ({active_str} • {exp_text})"
                 )
 
             mentions_text = "\n".join(owner_mentions)
 
             owner_display = f"<@{config.BOT_OWNER_ID}>" if config.BOT_OWNER_ID else "ไม่ได้ระบุ"
             embed = discord.Embed(
-                title="📋 แดชบอร์ดรายชื่อบัญชี Riot ในระบบ (ValoTracker.db)",
+                title="แดชบอร์ดรายชื่อบัญชี Riot ในระบบ (ValoTracker.db)",
                 description=(
-                    f"👑 **ผู้ดูแลระบบ:** {owner_display}\n"
-                    f"📊 **สถิติรวม:** 🟢 พร้อมใช้: `{valid_cnt}` • 🔴 ต้อง `/login` ใหม่: `{expired_cnt}` • ทั้งหมด: `{len(accounts)}` ไอดี\n\n"
-                    f"👥 **แท็กโปรไฟล์เจ้าของบัญชี (Discord):**\n"
+                    f"**ผู้ดูแลระบบ:** {owner_display}\n"
+                    f"**สถิติรวม:** พร้อมใช้: `{valid_cnt}` • ต้อง `/login` ใหม่: `{expired_cnt}` • ทั้งหมด: `{len(accounts)}` ไอดี\n\n"
+                    f"**แท็กโปรไฟล์เจ้าของบัญชี (Discord):**\n"
                     f"{mentions_text}\n\n"
-                    f"👇 *เลือกบัญชีจากเมนู Dropdown ด้านล่างเพื่อส่องร้านค้าประจำวันแบบส่วนตัว (`Ephemeral`)*"
+                    f"*เลือกบัญชีจากเมนูด้านล่างเพื่อดูร้านค้าประจำวันแบบส่วนตัว (`Ephemeral`)*"
                 ),
                 color=discord.Color.from_rgb(88, 101, 242),
             )
             embed.set_image(url="attachment://accounts_dashboard.png")
-            embed.set_footer(text="ValoTracker.db • Admin Dashboard • Powered by localhostvlr")
+            embed.set_footer(text="Powered by localhostvlr")
 
             view = AdminAccountShopView(accounts=accounts, alive_flags=alive_flags)
             await interaction.followup.send(embed=embed, file=file, view=view, ephemeral=True)

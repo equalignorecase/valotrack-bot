@@ -90,12 +90,12 @@ class GeneralCog(commands.Cog):
         discord_ver = discord.__version__
 
         embed = discord.Embed(
-            title="🖥️ สถานะการทำงานของบอท (Bot Status)",
+            title="สถานะการทำงานของบอท (Bot Status)",
             color=discord.Color.from_rgb(0, 212, 255),  # Cyan / Tech Blue
         )
 
         embed.add_field(
-            name="🤖 ข้อมูลการทำงานของบอท (Bot Runtime)",
+            name="ข้อมูลการทำงานของบอท (Bot Runtime)",
             value=(
                 f"• **ระยะเวลาทำงาน (Uptime):** `{uptime_str}` (<t:{uptime_timestamp}:R>)\n"
                 f"• **ความเร็วการตอบสนอง (Ping):** `{ping_ms} ms`\n"
@@ -106,7 +106,7 @@ class GeneralCog(commands.Cog):
         )
 
         embed.add_field(
-            name="⚙️ สภาพแวดล้อม (Environment)",
+            name="สภาพแวดล้อม (Environment)",
             value=(
                 f"• **Python:** `{python_ver}` • **Discord.py:** `{discord_ver}`"
             ),
@@ -131,7 +131,7 @@ class GeneralCog(commands.Cog):
             display_os = f"{os_name} {os_release} ({os_arch})"
 
             embed.add_field(
-                name="⚡ Host CPU & RAM (Admin View)",
+                name="Host CPU & RAM (Admin View)",
                 value=(
                     f"• CPU: `[{make_progress_bar(cpu_pct)}]` **{cpu_pct:.1f}%** ({logical_cores}T / {physical_cores}C)\n"
                     f"• RAM: `[{make_progress_bar(vm.percent)}]` **{ram_used_gb:.2f} / {ram_total_gb:.2f} GB**\n"
@@ -151,82 +151,63 @@ class GeneralCog(commands.Cog):
     @app_commands.command(name="help", description="ดูคำสั่งและคู่มือการใช้งานบอท ValoTracker ทั้งหมด")
     async def help_command(self, interaction: discord.Interaction):
         embed = discord.Embed(
-            title="🎯 ValoTracker — คู่มือการใช้งาน",
+            title="ValoTracker | คู่มือคำสั่ง",
             description=(
-                "บอท Discord ครบวงจรสำหรับ Valorant: ตรวจสอบร้านค้าสกินประจำวัน, "
-                "ดูสถิติการแข่ง, แรงค์แก๊งเพื่อน, Leaderboard และส่องห้องแข่งขันสด (Live Match)"
+                "เชื่อมบัญชีด้วย `/login` ก่อนดูร้านค้าด้วย `/shop`\n"
+                "ระบุผู้เล่นด้วย `Name#Tag`"
             ),
             color=discord.Color.from_rgb(255, 70, 85),  # Valorant signature red
         )
 
         embed.add_field(
-            name="🚀 วิธีเริ่มต้นใช้งาน (Quick Start)",
+            name="เริ่มต้นใช้งาน",
             value=(
-                "1. พิมพ์คำสั่ง `/login` เพื่อสร้างลิงก์เข้าสู่ระบบ Riot ที่ปลอดภัย\n"
-                "2. คลิกปุ่มเพื่อล็อกอินผ่านหน้าเว็บทางการของ Riot Games (ติ๊ก **Stay signed in**)\n"
-                "3. คัดลอก URL หน้าเว็บที่ขึ้น Error (`http://localhost/redirect?code=...`)\n"
-                "4. กดปุ่ม **ขั้นตอนที่ 2: กรอก Redirect URL** แล้ววาง URL ที่คัดลอกมา\n"
-                "5. พิมพ์คำสั่ง `/shop` เพื่อดูสกินประจำวันของคุณได้ทันที!"
+                "1. ใช้ `/login` แล้วเข้าสู่ระบบผ่านลิงก์ Riot\n"
+                "2. วาง Redirect URL ในขั้นตอนที่ 2 จากนั้นใช้ `/shop`"
             ),
             inline=False,
         )
 
         embed.add_field(
-            name="🛒 ร้านค้า & แข่งขันสด (Shop & Live)",
+            name="ร้านค้าและแข่งขันสด",
             value=(
-                "• **`/shop [account]`**\n"
-                "  ดูร้านค้าสกินปืนประจำวัน `4 กระบอก` พร้อมราคา `VP` (เลือกสลับดูไอดีที่ผูกไว้ได้ทันที • Owner ดูได้ทุกบัญชีใน DB)\n"
-                "• **`/live [player]`**\n"
-                "  ส่องห้องแข่งขันสด (In-Match) หรือหน้าเลือกตัวละคร (Agent Select) แสดงแรงค์ ปาร์ตี้ และสถิติ"
+                "`/shop [account]` — ดูร้านค้าประจำวันของบัญชีที่เลือก\n"
+                "`/live [player]` — ดูสถานะห้องแข่งสดและผู้เล่น"
             ),
             inline=False,
         )
 
         embed.add_field(
-            name="📊 สถิติ & ประวัติการแข่ง (Stats & Matches)",
+            name="สถิติและแมตช์",
             value=(
-                "• **`/rank <player>`**\n"
-                "  ดูอันดับแรงค์, คะแนน `RR`, `ELO` และ `Peak Rank` (ระบุ `Name#Tag`)\n"
-                "• **`/leaderboard [region] [player]`**\n"
-                "  ดูตารางท็อป Radiant หรือค้นหาอันดับผู้เล่นในบอร์ดเซิร์ฟเวอร์\n"
-                "• **`/lastmatch <player>`**\n"
-                "  ดูรูปภาพ **Scoreboard เต็ม** ของแมตช์ล่าสุด (`KDA`, `ACS`, `HS%`)\n"
-                "• **`/match <player>`**\n"
-                "  ดูประวัติ `5 แมตช์ล่าสุด` พร้อมเมนู Dropdown เลือกเปิดดู Scoreboard"
+                "`/rank <player>` — ดูแรงค์และคะแนน RR/ELO\n"
+                "`/leaderboard [region] [player]` — ดูหรือค้นหาอันดับผู้เล่น\n"
+                "`/lastmatch <player>` — ดู scoreboard แมตช์ล่าสุด\n"
+                "`/match <player>` — ดู 5 แมตช์ล่าสุดและ scoreboard"
             ),
             inline=False,
         )
 
         embed.add_field(
-            name="👥 ระบบเช็กแรงค์แก๊งเพื่อน (Friend Leaderboard)",
+            name="แรงค์เพื่อนในเซิร์ฟเวอร์",
             value=(
-                "• **`/checkrank`** — ดูตารางจัดอันดับแรงค์ของเพื่อนๆ ในเซิร์ฟเวอร์ (หน้าละ 5 คน พร้อมปุ่มอัปเดตสด)\n"
-                "• **`/addfriend <player>`** — เพิ่มชื่อเพื่อน (`Name#Tag`) เข้าสู่ตาราง `/checkrank`\n"
-                "• **`/removefriend <player>`** — ลบรายชื่อเพื่อนออกจากตาราง `/checkrank`"
+                "`/checkrank` — ดูอันดับแรงค์เพื่อน\n"
+                "`/addfriend <player>` — เพิ่มเพื่อนในตารางแรงค์\n"
+                "`/removefriend <player>` — ลบเพื่อนจากตารางแรงค์"
             ),
             inline=False,
         )
 
         embed.add_field(
-            name="🔐 จัดการบัญชี & ระบบ (Accounts & System)",
+            name="บัญชีและระบบ",
             value=(
-                "• **`/login [name]`** — เชื่อมต่อบัญชี Riot (ตั้งชื่อเล่นไอดีได้)\n"
-                "• **`/view-accounts`** — ดูรายชื่อบัญชี Riot ที่ผูกไว้พร้อมสถานะ Token (`🟢 พร้อมใช้` / `🔴 ต้อง /login ใหม่`)\n"
-                "• **`/select-account <id>`** — สลับบัญชีหลักสำหรับดูร้านค้า\n"
-                "• **`/delete-account <id>`** — ลบบัญชีและล้าง Token ออกจากระบบ\n"
-                "• **`/account-list`** — [Owner Only] ดูแดชบอร์ดบัญชีทั้งหมดในระบบ DB พร้อมเมนู Dropdown ส่องร้านค้าทุกไอดี\n"
-                "• **`/status`** — ดูสถานะเครื่องโฮสต์ (CPU %, RAM, Disk, Ping, Uptime)\n"
-                "• **`/help`** — แสดงคู่มือการใช้งานและรายการคำสั่งทั้งหมด"
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🔒 ความปลอดภัยและความเป็นส่วนตัว (Security)",
-            value=(
-                "• **ไม่เก็บรหัสผ่าน**: บอทจะไม่ทราบและไม่เคยขอรหัสผ่านของคุณ\n"
-                "• **เข้ารหัสแน่นหนา**: Token จะถูกเข้ารหัสด้วย **AES-256-GCM** ก่อนบันทึกเสมอ\n"
-                "• **ความเป็นส่วนตัว**: คำสั่งจัดการบัญชีจะแสดงผลให้คุณเห็นคนเดียวเท่านั้น (`ephemeral`)"
+                "`/login [name]` — เชื่อมบัญชี Riot\n"
+                "`/view-accounts` — ดูบัญชีที่เชื่อมและสถานะ\n"
+                "`/select-account <id>` — เลือกบัญชีหลัก\n"
+                "`/delete-account <id>` — ลบบัญชีที่เชื่อม\n"
+                "`/account-list` *(Owner only)* — ดูบัญชีทั้งหมดในระบบ\n"
+                "`/status` — ดูสถานะบอทและเครื่องโฮสต์\n"
+                "`/help` — เปิดคู่มือคำสั่ง"
             ),
             inline=False,
         )
@@ -236,7 +217,7 @@ class GeneralCog(commands.Cog):
             icon_url="https://media.valorant-api.com/competitivetiers/03621f52-342b-cf4e-4f86-9350a49c6d04/27/largeicon.png",
         )
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

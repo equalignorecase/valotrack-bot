@@ -115,6 +115,14 @@ def get_rank_badge(tier_name: str) -> str:
     return "❔"
 
 
+def make_rr_progress_bar(rr: int, total: int = 100, length: int = 10) -> str:
+    """Generates a Unicode progress bar like [▰▰▰▰▰▰▱▱▱▱]."""
+    clamped = max(0, min(rr, total))
+    filled = int((clamped / total) * length) if total > 0 else 0
+    empty = length - filled
+    return f"`[{'▰' * filled}{'▱' * empty}]`"
+
+
 class MatchSelectView(discord.ui.View):
     """View with a dropdown for users to select a match and inspect its full scoreboard image."""
 
@@ -186,7 +194,7 @@ class MatchSelectView(discord.ui.View):
         file = discord.File(fp=buf, filename=f"scoreboard_match_{selected_idx + 1}.png")
 
         embed = discord.Embed(
-            title=f"📊 สกอร์บอร์ดแมตช์ที่ {selected_idx + 1}: {map_name} ({mode})",
+        title=f"สกอร์บอร์ดแมตช์ที่ {selected_idx + 1}: {map_name} ({mode})",
             description=f"ผลการแข่งขันของ **{self.player_name}**",
             color=discord.Color.from_rgb(255, 70, 85),
         )
@@ -232,6 +240,10 @@ class StatsCog(commands.Cog):
         puuid = acc.get("puuid")
         shard = acc.get("region", "ap")
         display_name = f"{acc.get('name', name)}#{acc.get('tag', tag)}"
+        account_level = acc.get("account_level")
+        card_data = acc.get("card") or {}
+        card_icon = card_data.get("small")
+        author_name = f"{display_name} • Lv. {account_level}" if account_level is not None else display_name
 
         try:
             mmr_data = await get_mmr(shard=shard, puuid=puuid)
@@ -246,6 +258,7 @@ class StatsCog(commands.Cog):
             highest = mmr_data.get("highest_rank", {})
 
             rank_name = current.get("currenttierpatched", "Unrated")
+            rank_badge = get_rank_badge(rank_name)
             rr = current.get("ranking_in_tier", 0)
             elo = current.get("elo", 0)
             last_change = current.get("mmr_change_to_last_game", 0)
@@ -254,45 +267,61 @@ class StatsCog(commands.Cog):
 
             # Format last game RR change
             if last_change > 0:
-                change_str = f"📈 `+{last_change} RR`"
+                change_str = f"`+{last_change} RR`"
             elif last_change < 0:
-                change_str = f"📉 `{last_change} RR`"
+                change_str = f"`{last_change} RR`"
             else:
-                change_str = "➖ `0 RR`"
+                change_str = "`0 RR`"
 
             peak_rank = highest.get("patched_tier", "ไม่มีข้อมูล")
             peak_season = highest.get("season", "").upper()
-            peak_str = f"🏆 **{peak_rank}** (`{peak_season}`)" if peak_season else f"🏆 **{peak_rank}**"
+            peak_str = f"**{peak_rank}** (`{peak_season}`)" if peak_season else f"**{peak_rank}**"
+
+            # Format rank line with Progress Bar
+            is_uncapped = any(t in rank_name.lower() for t in ("immortal", "radiant"))
+            if is_uncapped:
+                rr_line = f"**{rank_name}**\n`{rr:,} RR`"
+            else:
+                bar = make_rr_progress_bar(rr, 100, 10)
+                rr_line = f"**{rank_name}**\n{bar} `{rr} / 100 RR`"
 
             embed = discord.Embed(
-                title=f"🎖️ ข้อมูลแรงค์ Valorant: {display_name}",
+                title="สถิติแรงค์การแข่งขัน (Competitive)",
                 color=get_rank_color(rank_name),
             )
+            if card_icon:
+                embed.set_author(name=author_name, icon_url=card_icon)
+            else:
+                embed.set_author(name=author_name)
+
             if rank_icon:
                 embed.set_thumbnail(url=rank_icon)
 
+            # Row 1: Current Rank & Progress Bar
             embed.add_field(
-                name="🏅 แรงค์ปัจจุบัน",
-                value=f"**{rank_name}**\n(`{rr} / 100 RR`)",
-                inline=True,
+                name="แรงค์ปัจจุบัน",
+                value=rr_line,
+                inline=False,
             )
+
+            # Row 2: 3 clean columns
             embed.add_field(
-                name="📊 แต้ม ELO รวม",
-                value=f"`{elo:,}`",
-                inline=True,
-            )
-            embed.add_field(
-                name="⚡ แมตช์ล่าสุด",
+                name="แมตช์ล่าสุด",
                 value=change_str,
                 inline=True,
             )
             embed.add_field(
-                name="🌟 แรงค์สูงสุดที่เคยได้ (Peak Rank)",
+                name="แต้ม ELO รวม",
+                value=f"`{elo:,}`",
+                inline=True,
+            )
+            embed.add_field(
+                name="แรงค์สูงสุด (Peak)",
                 value=peak_str,
-                inline=False,
+                inline=True,
             )
 
-            embed.set_footer(text=f"ภูมิภาค: {shard.upper()} • Powered by localhostvlr")
+            embed.set_footer(text="Powered by localhostvlr")
             await interaction.followup.send(embed=embed)
 
         except Exception as e:
@@ -359,13 +388,13 @@ class StatsCog(commands.Cog):
                 rounds_lost = rl
                 has_won = t_info.get("has_won")
                 if has_won is True:
-                    outcome_str = "🏆 ชัยชนะ (VICTORY)"
+                    outcome_str = "ชนะ (VICTORY)"
                     embed_color = discord.Color.green()
                 elif has_won is False:
-                    outcome_str = "💀 พ่ายแพ้ (DEFEAT)"
+                    outcome_str = "แพ้ (DEFEAT)"
                     embed_color = discord.Color.red()
                 else:
-                    outcome_str = "🤝 เสมอ (DRAW)"
+                    outcome_str = "เสมอ (DRAW)"
                     embed_color = discord.Color.gold()
 
             # Render Scoreboard image using Pillow
@@ -378,7 +407,7 @@ class StatsCog(commands.Cog):
                 color=embed_color,
             )
             embed.set_image(url="attachment://scoreboard.png")
-            embed.set_footer(text=f"ภูมิภาค: {shard.upper()} • Powered by localhostvlr")
+            embed.set_footer(text="Powered by localhostvlr")
 
             await interaction.followup.send(embed=embed, file=file)
 
@@ -476,23 +505,23 @@ class StatsCog(commands.Cog):
 
                     if has_won is True:
                         wins += 1
-                        outcome_str = f"🟢 ชนะ ({score_str})"
+                        outcome_str = f"ชนะ ({score_str})"
                     elif has_won is False:
                         losses += 1
-                        outcome_str = f"🔴 แพ้ ({score_str})"
+                        outcome_str = f"แพ้ ({score_str})"
                     elif has_won is None and (rw > 0 or rl > 0):
                         if rw > rl:
                             wins += 1
-                            outcome_str = f"🟢 ชนะ ({score_str})"
+                            outcome_str = f"ชนะ ({score_str})"
                         elif rw < rl:
                             losses += 1
-                            outcome_str = f"🔴 แพ้ ({score_str})"
+                            outcome_str = f"แพ้ ({score_str})"
                         else:
                             draws += 1
-                            outcome_str = f"🟡 เสมอ ({score_str})"
+                            outcome_str = f"เสมอ ({score_str})"
                     else:
                         draws += 1
-                        outcome_str = f"🟡 เสมอ ({score_str})"
+                        outcome_str = f"เสมอ ({score_str})"
 
                     stats = target_p.get("stats") or {}
                     k = stats.get("kills") or 0
@@ -545,23 +574,23 @@ class StatsCog(commands.Cog):
                     f"{_pad_thai('เวลาที่เล่น')} : {format_thai_match_date(game_start)}",
                 ]
                 box_content = "```\n" + "\n".join(box_lines) + "\n```"
-                time_badge = f"🕒 เล่นเมื่อ <t:{game_start}:R>" if game_start else ""
+                time_badge = f"เล่นเมื่อ <t:{game_start}:R>" if game_start else ""
                 card_value = f"{box_content}\n{time_badge}" if time_badge else box_content
 
-                header_title = f"`แมตช์ที่ {idx}` • 🗺️ {map_name}"
+                header_title = f"`แมตช์ที่ {idx}` • {map_name}"
                 match_cards.append((header_title, card_value))
 
             total_counted = wins + losses + draws
             win_rate = round((wins / max(total_counted, 1)) * 100)
-            draw_text = f" / 🟡 `{draws} เสมอ`" if draws > 0 else ""
+            draw_text = f" / `{draws} เสมอ`" if draws > 0 else ""
 
             embed_desc = (
-                f"📊 **ภาพรวม 5 แมตช์ล่าสุด:** 🟢 `{wins} ชนะ` / 🔴 `{losses} แพ้`{draw_text} (Win Rate: `{win_rate}%`)\n"
-                f"👇 *เลือกแมตช์จากเมนู Dropdown ด้านล่างเพื่อดูรูปภาพ **Scoreboard เต็ม** ได้ทันที*"
+                f"**ภาพรวม 5 แมตช์ล่าสุด:** `{wins} ชนะ` / `{losses} แพ้`{draw_text} (Win Rate: `{win_rate}%`)\n"
+                f"*เลือกแมตช์จากเมนูด้านล่างเพื่อดูภาพ Scoreboard*"
             )
 
             embed = discord.Embed(
-                title=f"📜 ประวัติการแข่งขัน 5 แมตช์ล่าสุด: {display_name}",
+                title=f"ประวัติการแข่งขัน 5 แมตช์ล่าสุด: {display_name}",
                 description=embed_desc,
                 color=discord.Color.from_rgb(255, 70, 85),
             )
@@ -569,7 +598,7 @@ class StatsCog(commands.Cog):
             for header, content in match_cards:
                 embed.add_field(name=header, value=content, inline=False)
 
-            embed.set_footer(text=f"ภูมิภาค: {shard.upper()} • Powered by localhostvlr")
+            embed.set_footer(text="Powered by localhostvlr")
 
             view = MatchSelectView(matches=matches, target_puuid=puuid, player_name=display_name)
             await interaction.followup.send(embed=embed, view=view)
@@ -732,14 +761,15 @@ class StatsCog(commands.Cog):
             rr = curr.get("ranking_in_tier", 0)
 
         embed = discord.Embed(
-            title="✅ เพิ่มเพื่อนเข้าแก๊งสำเร็จ!",
+            title="เพิ่มเพื่อนเข้าแก๊งสำเร็จ",
             description=(
                 f"เพิ่ม **{display_name}** เข้าสู่ระบบตรวจสอบแรงค์ `/checkrank` แล้ว\n"
-                f"🏅 แรงค์ปัจจุบัน: **{rank_name}** (`{rr} RR`)\n"
-                f"🌍 ภูมิภาค: `{shard.upper()}`"
+                f"แรงค์ปัจจุบัน: **{rank_name}** (`{rr} RR`)\n"
+                f"ภูมิภาค: `{shard.upper()}`"
             ),
             color=get_rank_color(rank_name),
         )
+        embed.set_footer(text="Powered by localhostvlr")
         await interaction.followup.send(embed=embed)
 
     @app_commands.command(
@@ -826,18 +856,15 @@ def build_leaderboard_embed(
     time_str = f"<t:{last_update}:R>" if last_update else "เร็วๆ นี้"
 
     desc_lines = [
-        f"👑 **เกณฑ์ขั้นต่ำขึ้น Radiant:** `{radiant_threshold} RR`",
-        f"👥 **ผู้เล่นติดบอร์ดทั้งหมด:** `{total_players:,} คน` • 🕒 **อัปเดต:** {time_str}\n",
+        f"**เกณฑ์ขั้นต่ำขึ้น Radiant:** `{radiant_threshold} RR`",
+        f"**ผู้เล่นติดบอร์ดทั้งหมด:** `{total_players:,} คน` • **อัปเดต:** {time_str}\n",
     ]
-
-    medal_icons = {1: "🥇", 2: "🥈", 3: "🥉"}
 
     for p in page_players:
         rank = p.get("leaderboardRank", 0)
-        medal = medal_icons.get(rank, "🔹")
         is_anon = p.get("IsAnonymized", False)
         if is_anon:
-            player_str = "*🕵️ Secret Agent (ซ่อนชื่อ)*"
+            player_str = "*Secret Agent (ซ่อนชื่อ)*"
         else:
             gn = p.get("gameName") or "Player"
             tag = p.get("tagLine") or ""
@@ -847,12 +874,12 @@ def build_leaderboard_embed(
         wins = p.get("numberOfWins", 0)
 
         desc_lines.append(
-            f"{medal} `#{rank:<2}` • {player_str}\n"
-            f"   └ ⭐ `{rr:,} RR` • 🏆 `{wins:,} ชนะ`"
+            f"`#{rank:<2}` • {player_str}\n"
+            f"   └ `{rr:,} RR` • `{wins:,} ชนะ`"
         )
 
     embed = discord.Embed(
-        title=f"🏆 Valorant Radiant Leaderboard — {reg_name}",
+        title=f"Valorant Radiant Leaderboard — {reg_name}",
         description="\n".join(desc_lines),
         color=discord.Color.from_rgb(255, 235, 120),  # Radiant Gold
     )
@@ -876,23 +903,21 @@ def build_leaderboard_search_embed(
 
     if not matches:
         embed = discord.Embed(
-            title=f"🔍 ค้นหาใน Leaderboard — {reg_name}",
+            title=f"ค้นหาใน Leaderboard — {reg_name}",
             description=(
-                f"❌ ไม่พบผู้เล่น **`{query}`** ในตาราง Leaderboard ท็อป 15,000 คนของเซิร์ฟเวอร์ `{shard.upper()}`\n\n"
-                f"💡 *ผู้เล่นอาจอยู่อันดับต่ำกว่า Immortal 1 หรือตั้งโปรไฟล์เป็นส่วนตัว*"
+                f"ไม่พบผู้เล่น **`{query}`** ในตาราง Leaderboard ท็อป 15,000 คนของเซิร์ฟเวอร์ `{shard.upper()}`\n\n"
+                f"*ผู้เล่นอาจอยู่อันดับต่ำกว่า Immortal 1 หรือตั้งโปรไฟล์เป็นส่วนตัว*"
             ),
             color=discord.Color.red(),
         )
+        embed.set_footer(text="Powered by localhostvlr")
         return embed
 
     desc_lines = [
-        f"🎯 ผลการค้นหาสำหรับ **`{query}`** ในภูมิภาค `{reg_name}` (พบ {len(matches)} คน):\n",
+        f"ผลการค้นหาสำหรับ **`{query}`** ในภูมิภาค `{reg_name}` (พบ {len(matches)} คน):\n",
     ]
-    medal_icons = {1: "🥇", 2: "🥈", 3: "🥉"}
-
     for p in matches[:8]:
         rank = p.get("leaderboardRank", 0)
-        medal = medal_icons.get(rank, "🔹")
         gn = p.get("gameName") or "Player"
         tag = p.get("tagLine") or ""
         player_str = f"**{gn}#{tag}**" if tag else f"**{gn}**"
@@ -901,19 +926,19 @@ def build_leaderboard_search_embed(
         tier = "Radiant" if rr >= radiant_threshold else "Immortal"
 
         desc_lines.append(
-            f"{medal} `#{rank}` • {player_str}\n"
-            f"   └ ⭐ `{rr:,} RR` ({tier}) • 🏆 `{wins:,} ชนะ`"
+            f"`#{rank}` • {player_str}\n"
+            f"   └ `{rr:,} RR` ({tier}) • `{wins:,} ชนะ`"
         )
 
     embed = discord.Embed(
-        title=f"🔍 ผลการค้นหา Leaderboard — {reg_name}",
+        title=f"ผลการค้นหา Leaderboard — {reg_name}",
         description="\n".join(desc_lines),
         color=discord.Color.from_rgb(255, 235, 120),
     )
     embed.set_thumbnail(
         url="https://media.valorant-api.com/competitivetiers/03621f52-342b-cf4e-4f86-9350a49c6d04/27/largeicon.png"
     )
-    embed.set_footer(text=f"เกณฑ์ Radiant: {radiant_threshold} RR • Powered by localhostvlr")
+    embed.set_footer(text="Powered by localhostvlr")
     return embed
 
 
@@ -1070,21 +1095,7 @@ def build_friend_rank_embed(
     )
     embed.set_thumbnail(url=logo_url)
 
-    num_emojis = {
-        1: "1️⃣",
-        2: "2️⃣",
-        3: "3️⃣",
-        4: "4️⃣",
-        5: "5️⃣",
-        6: "6️⃣",
-        7: "7️⃣",
-        8: "8️⃣",
-        9: "9️⃣",
-        10: "🔟",
-    }
-
     for idx, p in enumerate(page_players, start=start_idx + 1):
-        rank_icon = num_emojis.get(idx, f"#{idx}")
         display_name = p.get("display_name", "Unknown")
         rank_name = p.get("rank_name", "Unrated")
         rr = p.get("rr", 0)
@@ -1099,7 +1110,7 @@ def build_friend_rank_embed(
         else:
             change_str = "0 RR"
 
-        field_name = f"{rank_icon} **{display_name}**"
+        field_name = f"#{idx} **{display_name}**"
         field_value = (
             f"**{rank_name}** (`{rr}/100 RR`)\n"
             f"แมตช์ล่าสุด: `{change_str}` • ELO: `{elo:,}`\n"
@@ -1109,7 +1120,7 @@ def build_friend_rank_embed(
 
     now_ict = datetime.now(ICT).strftime("%H:%M:%S น.")
     embed.set_footer(
-        text=f"หน้า {page + 1}/{total_pages} • อัพเดทล่าสุดเมื่อ {now_ict} (ICT) • กด 🔄 เพื่ออัพเดทแรงค์"
+        text=f"หน้า {page + 1}/{total_pages} • อัพเดทล่าสุดเมื่อ {now_ict} (ICT) • Powered by localhostvlr"
     )
     return embed
 

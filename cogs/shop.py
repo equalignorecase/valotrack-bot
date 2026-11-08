@@ -292,14 +292,14 @@ async def build_shop_embed_and_file(
     seconds = remaining_seconds % 60
 
     embed_desc = (
-        f"⏳ **เวลาร้านค้ารีเซ็ต:** `{hours} ชม. {minutes} นาที {seconds} วินาที` (<t:{reset_timestamp}:R>)\n"
-        f"🌐 **ภูมิภาค:** `{account.shard.upper()}` • 💰 **ราคารวมทั้งหมด:** `{total_vp:,} VP`\n\n"
-        f"**📋 รายการสกินประจำวันนี้:**\n"
+        f"**เวลาร้านค้ารีเซ็ต:** `{hours} ชม. {minutes} นาที {seconds} วินาที` (<t:{reset_timestamp}:R>)\n"
+        f"**ภูมิภาค:** `{account.shard.upper()}` • **ราคารวมทั้งหมด:** `{total_vp:,} VP`\n\n"
+        f"**รายการสกินประจำวันนี้:**\n"
         f"{summary_text}"
     )
 
     embed = discord.Embed(
-        title=f"🛒 ร้านค้าประจำวัน (Daily Shop): {account.name or 'บัญชี Valorant'}",
+        title=f"ร้านค้าประจำวัน (Daily Shop): {account.name or 'บัญชี Valorant'}",
         description=embed_desc,
         color=discord.Color.from_rgb(255, 70, 85),
     )
