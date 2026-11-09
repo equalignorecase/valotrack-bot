@@ -25,13 +25,19 @@ from services.valorant_api import get_weapon_info
 
 logger = logging.getLogger(__name__)
 
-# Dynamic Bot Owner ID loaded from environment (.env BOT_OWNER_ID)
-OWNER_DISCORD_ID = config.BOT_OWNER_ID
+# Dynamic Bot Owner ID loaded from config / environment (.env BOT_OWNER_ID)
+DEFAULT_OWNER_ID = 578167102582685698
+OWNER_DISCORD_ID = config.BOT_OWNER_ID or DEFAULT_OWNER_ID
 
 
-def is_bot_owner(user_id: int) -> bool:
-    """Returns True if the user_id matches the configured BOT_OWNER_ID in .env."""
-    return bool(config.BOT_OWNER_ID and user_id == config.BOT_OWNER_ID)
+def is_bot_owner(user_id: int | str) -> bool:
+    """Returns True if user_id matches configured BOT_OWNER_ID or fallback owner."""
+    try:
+        uid = int(user_id)
+        owner_id = int(config.BOT_OWNER_ID or DEFAULT_OWNER_ID)
+        return uid == owner_id
+    except (ValueError, TypeError):
+        return False
 
 # In-memory Daily Shop Cache: {(puuid, shard, player_name): {"cache_until": float, "reset_ts": int, "total_vp": int, "summary_text": str, "png_bytes": bytes}}
 _SHOP_CACHE: dict[tuple[str, str, str], dict[str, Any]] = {}

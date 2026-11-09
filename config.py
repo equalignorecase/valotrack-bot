@@ -25,8 +25,9 @@ GUILD_ID = int(guild_id_str) if guild_id_str and guild_id_str.isdigit() else Non
 AES_KEY_B64 = os.getenv("AES_KEY", "")
 DB_PATH = os.getenv("DB_PATH", "ValoTracker.db")
 
+DEFAULT_BOT_OWNER_ID = 578167102582685698
 bot_owner_str = os.getenv("BOT_OWNER_ID") or ""
-BOT_OWNER_ID = int(bot_owner_str) if bot_owner_str and bot_owner_str.isdigit() else None
+BOT_OWNER_ID = int(bot_owner_str) if bot_owner_str and bot_owner_str.isdigit() else DEFAULT_BOT_OWNER_ID
 
 # HenrikDev Valorant API Key (clean quotes, spaces, and accidental trailing % from terminal copy-paste)
 HENRIK_API_KEY = (os.getenv("HENRIK_API_KEY") or "").strip().strip("\"'").rstrip("%")
