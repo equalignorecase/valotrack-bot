@@ -315,6 +315,47 @@ async def build_shop_embed_and_file(
     return embed, file, None
 
 
+async def account_choices(
+    interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[str]]:
+    """Shared account autocomplete for /shop and /autoshop."""
+    try:
+        is_owner = is_bot_owner(interaction.user.id)
+        if is_owner:
+            accounts = await get_all_users()
+        else:
+            accounts = await get_users_by_discord_id(interaction.user.id)
+
+        q = current.strip().lower()
+        choices: list[app_commands.Choice[str]] = []
+
+        for idx, acc in enumerate(accounts, start=1):
+            is_alive = _has_refresh_token(acc)
+            dot = "🟢" if is_alive else "🔴"
+            acc_name = acc.name or f"{acc.puuid[:8]}"
+            shard = acc.shard.upper()
+
+            if is_owner:
+                status_lbl = "พร้อมใช้" if is_alive else "ต้อง /login"
+                label = f"{dot} #{acc.id} {acc_name} ({shard} • {status_lbl})"
+                searchable = f"{acc.id} {acc_name} {shard} {acc.discord_user_id}".lower()
+            else:
+                sel_star = " ⭐" if acc.selected else ""
+                status_lbl = "พร้อมใช้" if is_alive else "ต้อง /login"
+                label = f"{dot} #{idx} {acc_name} ({shard} • {status_lbl}){sel_star}"
+                searchable = f"{idx} {acc.id} {acc_name} {shard}".lower()
+
+            if not q or q in searchable:
+                choices.append(app_commands.Choice(name=label[:100], value=str(acc.id)))
+                if len(choices) >= 25:
+                    break
+
+        return choices
+    except Exception as e:
+        logger.debug("Autocomplete error in account choices: %s", e)
+        return []
+
+
 class ShopCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -350,41 +391,7 @@ class ShopCog(commands.Cog):
     async def shop_account_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        try:
-            is_owner = is_bot_owner(interaction.user.id)
-            if is_owner:
-                accounts = await get_all_users()
-            else:
-                accounts = await get_users_by_discord_id(interaction.user.id)
-
-            q = current.strip().lower()
-            choices: list[app_commands.Choice[str]] = []
-
-            for idx, acc in enumerate(accounts, start=1):
-                is_alive = _has_refresh_token(acc)
-                dot = "🟢" if is_alive else "🔴"
-                acc_name = acc.name or f"{acc.puuid[:8]}"
-                shard = acc.shard.upper()
-
-                if is_owner:
-                    status_lbl = "พร้อมใช้" if is_alive else "ต้อง /login"
-                    label = f"{dot} #{acc.id} {acc_name} ({shard} • {status_lbl})"
-                    searchable = f"{acc.id} {acc_name} {shard} {acc.discord_user_id}".lower()
-                else:
-                    sel_star = " ⭐" if acc.selected else ""
-                    status_lbl = "พร้อมใช้" if is_alive else "ต้อง /login"
-                    label = f"{dot} #{idx} {acc_name} ({shard} • {status_lbl}){sel_star}"
-                    searchable = f"{idx} {acc.id} {acc_name} {shard}".lower()
-
-                if not q or q in searchable:
-                    choices.append(app_commands.Choice(name=label[:100], value=str(acc.id)))
-                    if len(choices) >= 25:
-                        break
-
-            return choices
-        except Exception as e:
-            logger.debug("Autocomplete error in /shop: %s", e)
-            return []
+        return await account_choices(interaction, current)
 
 
 async def setup(bot: commands.Bot):

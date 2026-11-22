@@ -66,6 +66,47 @@ class UserAccount:
 
 
 @dataclass
+class AutoShopSubscription:
+    id: int | None
+    discord_user_id: int
+    account_id: int
+    target_type: str  # "dm" | "channel"
+    channel_id: int | None
+    enabled: bool
+    last_sent_at: datetime | None
+    last_status: str | None
+    created_at: datetime = datetime.now(timezone.utc)
+    updated_at: datetime = datetime.now(timezone.utc)
+
+    @classmethod
+    def from_row(cls, row: tuple) -> "AutoShopSubscription":
+        (
+            sub_id,
+            discord_user_id,
+            account_id,
+            target_type,
+            channel_id,
+            enabled,
+            last_sent_at,
+            last_status,
+            created_at,
+            updated_at,
+        ) = row
+        return cls(
+            id=sub_id,
+            discord_user_id=discord_user_id,
+            account_id=account_id,
+            target_type=target_type,
+            channel_id=channel_id,
+            enabled=bool(enabled),
+            last_sent_at=parse_datetime(last_sent_at) if last_sent_at else None,
+            last_status=last_status,
+            created_at=parse_datetime(created_at),
+            updated_at=parse_datetime(updated_at),
+        )
+
+
+@dataclass
 class TrackedFriend:
     id: int | None
     guild_id: int

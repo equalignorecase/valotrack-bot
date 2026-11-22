@@ -48,7 +48,7 @@ class ValoTrackerBot(commands.Bot):
         await init_db()
 
         # 2. Load Cogs
-        cog_extensions = ["cogs.auth", "cogs.shop", "cogs.general", "cogs.stats", "cogs.live"]
+        cog_extensions = ["cogs.auth", "cogs.shop", "cogs.autoshop", "cogs.general", "cogs.stats", "cogs.live"]
         for ext in cog_extensions:
             try:
                 await self.load_extension(ext)

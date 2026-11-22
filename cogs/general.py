@@ -172,6 +172,10 @@ class GeneralCog(commands.Cog):
             name="ร้านค้าและแข่งขันสด",
             value=(
                 "`/shop [account]` — ดูร้านค้าประจำวันของบัญชีที่เลือก\n"
+                "`/autoshop on [channel] [account]` — เปิดส่งร้านค้าอัตโนมัติทุกวัน 07:05 น.\n"
+                "`/autoshop off` — ปิดส่งร้านค้าอัตโนมัติ\n"
+                "`/autoshop status` — ดูสถานะ/รอบถัดไป/ผลส่งล่าสุด\n"
+                "`/autoshop test` — ทดลองส่งร้านค้าไปยังปลายทางทันที\n"
                 "`/live [player]` — ดูสถานะห้องแข่งสดและผู้เล่น"
             ),
             inline=False,

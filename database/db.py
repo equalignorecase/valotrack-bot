@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timezone
 import aiosqlite
 from config import DB_PATH
-from database.models import TrackedFriend, UserAccount
+from database.models import AutoShopSubscription, TrackedFriend, UserAccount
 from services.crypto import encrypt_string
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,22 @@ async def init_db() -> None:
                 Region TEXT DEFAULT 'ap',
                 CreatedAt TEXT NOT NULL,
                 UNIQUE(GuildId, Name, Tag)
+            );
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS AutoShopSubscriptions (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                DiscordUserId INTEGER NOT NULL UNIQUE,
+                AccountId INTEGER NOT NULL,
+                TargetType TEXT NOT NULL,
+                ChannelId INTEGER,
+                Enabled INTEGER NOT NULL DEFAULT 1,
+                LastSentAt TEXT,
+                LastStatus TEXT,
+                CreatedAt TEXT NOT NULL,
+                UpdatedAt TEXT NOT NULL
             );
             """
         )
@@ -325,6 +341,8 @@ async def delete_account(discord_user_id: int, account_id: int) -> UserAccount |
             deleted_user = UserAccount.from_row(row)
 
         await db.execute("DELETE FROM Users WHERE Id = ?", (account_id,))
+        # Cascade: drop any auto-send subscription pinned to this account
+        await db.execute("DELETE FROM AutoShopSubscriptions WHERE AccountId = ?", (account_id,))
 
         if deleted_user.selected:
             # Pick next available account to be selected
@@ -437,5 +455,83 @@ async def ensure_default_friends(guild_id: int, default_friends: list[str]) -> l
             )
         await db.commit()
     return await get_tracked_friends(guild_id)
+
+
+async def get_auto_shop_subscription(discord_user_id: int) -> AutoShopSubscription | None:
+    """Retrieves the auto-send shop subscription for a Discord user, if any."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT * FROM AutoShopSubscriptions WHERE DiscordUserId = ? LIMIT 1",
+            (discord_user_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return AutoShopSubscription.from_row(row) if row else None
+
+
+async def get_enabled_auto_shop_subscriptions() -> list[AutoShopSubscription]:
+    """Retrieves every enabled auto-send shop subscription."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT * FROM AutoShopSubscriptions WHERE Enabled = 1 ORDER BY Id ASC"
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [AutoShopSubscription.from_row(r) for r in rows]
+
+
+async def upsert_auto_shop_subscription(
+    discord_user_id: int,
+    account_id: int,
+    target_type: str,
+    channel_id: int | None = None,
+) -> AutoShopSubscription:
+    """Creates or replaces the user's auto-send subscription (one per Discord user)."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO AutoShopSubscriptions (
+                DiscordUserId, AccountId, TargetType, ChannelId, Enabled, CreatedAt, UpdatedAt
+            ) VALUES (?, ?, ?, ?, 1, ?, ?)
+            ON CONFLICT(DiscordUserId) DO UPDATE SET
+                AccountId = excluded.AccountId,
+                TargetType = excluded.TargetType,
+                ChannelId = excluded.ChannelId,
+                Enabled = 1,
+                UpdatedAt = excluded.UpdatedAt;
+            """,
+            (discord_user_id, account_id, target_type, channel_id, now_iso, now_iso),
+        )
+        await db.commit()
+
+    sub = await get_auto_shop_subscription(discord_user_id)
+    if not sub:
+        raise ValueError(f"Failed to retrieve auto-send subscription for user {discord_user_id}")
+    return sub
+
+
+async def delete_auto_shop_subscription(discord_user_id: int) -> bool:
+    """Removes the user's auto-send subscription. Returns True if one existed."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "DELETE FROM AutoShopSubscriptions WHERE DiscordUserId = ?",
+            (discord_user_id,),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def update_auto_shop_last_result(discord_user_id: int, status: str) -> None:
+    """Records the outcome of the most recent auto-send attempt."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            UPDATE AutoShopSubscriptions
+            SET LastSentAt = ?, LastStatus = ?, UpdatedAt = ?
+            WHERE DiscordUserId = ?
+            """,
+            (now_iso, status[:500], now_iso, discord_user_id),
+        )
+        await db.commit()
 
 
